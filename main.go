@@ -45,42 +45,43 @@ func run() error {
 	}
 
 	composeCmd := args[0]
-	cmdOptions, services := parseRemainingArgs(args[1:])
+	cmdOptions, includeServices := parseRemainingArgs(args[1:])
 
 	composePath, err := findComposeFile(*composeFile)
 	if err != nil {
 		return err
 	}
 
-	if len(services) == 0 {
+	if len(includeServices) == 0 {
 		return executePassthroughCommand(composePath, args)
 	}
 
-	return executeFilteredCommand(composePath, composeCmd, cmdOptions, services)
+	return executeFilteredCommand(composePath, composeCmd, cmdOptions, includeServices)
 }
 
 // printUsage displays command line usage information and exits the program
 func printUsage(flagSet *flag.FlagSet) {
-	fmt.Println("Usage: quay [options] COMMAND [SERVICE...]")
+	fmt.Println("Usage: quay [options] COMMAND [command options]")
 	fmt.Println("\nOptions:")
 	flagSet.PrintDefaults()
+	fmt.Println("\nCommand options:")
+	fmt.Println("  --include SERVICE    Service to include (can be used multiple times)")
 	fmt.Println("\nExamples:")
-	fmt.Println("  quay up -d                     # Run all services")
-	fmt.Println("  quay up -d web db              # Run only web and db services")
-	fmt.Println("  quay -f custom.yml up redis    # Use custom compose file")
+	fmt.Println("  quay up -d                           # Run all services")
+	fmt.Println("  quay up -d --include web --include db  # Run only web and db services")
+	fmt.Println("  quay -f custom.yml up --include redis  # Use custom compose file")
 	os.Exit(1)
 }
 
 // parseRemainingArgs separates command options from service names in the argument list
-// It returns two slices: command options (starting with -) and service names
+// It extracts services specified with --include and returns command options and services
 func parseRemainingArgs(args []string) (cmdOptions, services []string) {
-	serviceMode := false
-	for _, arg := range args {
-		if !serviceMode && strings.HasPrefix(arg, "-") {
-			cmdOptions = append(cmdOptions, arg)
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--include" && i+1 < len(args) {
+			services = append(services, args[i+1])
+			i++ // Skip the next argument as it's the service name
 		} else {
-			serviceMode = true
-			services = append(services, arg)
+			cmdOptions = append(cmdOptions, args[i])
 		}
 	}
 	return cmdOptions, services
@@ -155,10 +156,6 @@ func executeFilteredCommand(composePath, composeCmd string, cmdOptions, services
 		dockerComposeArgs = append(dockerComposeArgs, "--remove-orphans")
 	}
 
-	if needsServiceNames(composeCmd) {
-		dockerComposeArgs = append(dockerComposeArgs, services...)
-	}
-
 	cmd := exec.Command("docker-compose", dockerComposeArgs...)
 	cmd.Stdin = strings.NewReader(string(yamlData))
 	cmd.Stdout = os.Stdout
@@ -199,17 +196,6 @@ func filterServices(project *types.Project, requestedServices []string) (*types.
 func containsRemoveOrphans(options []string) bool {
 	for _, opt := range options {
 		if opt == "--remove-orphans" {
-			return true
-		}
-	}
-	return false
-}
-
-// needsServiceNames determines if a Docker Compose command should have service names appended
-func needsServiceNames(cmd string) bool {
-	serviceCommands := []string{"up", "run", "start", "restart"}
-	for _, serviceCmd := range serviceCommands {
-		if strings.Contains(cmd, serviceCmd) {
 			return true
 		}
 	}

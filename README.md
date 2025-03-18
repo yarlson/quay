@@ -4,7 +4,7 @@ Quay is a CLI tool designed to manage and filter Docker Compose services. It all
 
 ## Features
 
-- **Service Filtering**: Run specific services from a Docker Compose file.
+- **Service Filtering**: Run specific services from a Docker Compose file using the `--include` option.
 - **Custom Compose File Support**: Use a custom Docker Compose file with the `-f` option.
 - **Command Flexibility**: Supports various Docker Compose commands like `up`, `down`, `restart`, and more.
 
@@ -23,15 +23,15 @@ go build -o quay .
 To use Quay, you can specify the Docker Compose file and the services you want to manage:
 
 ```bash
-./quay -f path/to/docker-compose.yml up -d
+./quay -f path/to/docker-compose.yml up -d --include web
 ```
 
 ### Basic Commands
 
 - **Up**: Start services
   ```bash
-  ./quay up -d                     # Run all services
-  ./quay up -d web db              # Run only web and db services
+  ./quay up -d                                 # Run all services
+  ./quay up -d --include web --include db     # Run only web and db services
   ```
 - **Down**: Stop services
   ```bash
@@ -43,7 +43,7 @@ To use Quay, you can specify the Docker Compose file and the services you want t
 You can also use Quay to run specific services with custom Docker Compose files:
 
 ```bash
-./quay -f custom.yml up redis
+./quay -f custom.yml up --include redis
 ```
 
 ## Contributing
