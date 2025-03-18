@@ -45,18 +45,18 @@ func run() error {
 	}
 
 	composeCmd := args[0]
-	cmdOptions, includeServices := parseRemainingArgs(args[1:])
+	cmdOptions, includeServices, excludeServices := parseRemainingArgs(args[1:])
 
 	composePath, err := findComposeFile(*composeFile)
 	if err != nil {
 		return err
 	}
 
-	if len(includeServices) == 0 {
+	if len(includeServices) == 0 && len(excludeServices) == 0 {
 		return executePassthroughCommand(composePath, args)
 	}
 
-	return executeFilteredCommand(composePath, composeCmd, cmdOptions, includeServices)
+	return executeFilteredCommand(composePath, composeCmd, cmdOptions, includeServices, excludeServices)
 }
 
 // printUsage displays command line usage information and exits the program
@@ -66,25 +66,30 @@ func printUsage(flagSet *flag.FlagSet) {
 	flagSet.PrintDefaults()
 	fmt.Println("\nCommand options:")
 	fmt.Println("  --include SERVICE    Service to include (can be used multiple times)")
+	fmt.Println("  --exclude SERVICE    Service to exclude (can be used multiple times)")
 	fmt.Println("\nExamples:")
 	fmt.Println("  quay up -d                           # Run all services")
 	fmt.Println("  quay up -d --include web --include db  # Run only web and db services")
+	fmt.Println("  quay up -d --exclude web               # Run all services except web")
 	fmt.Println("  quay -f custom.yml up --include redis  # Use custom compose file")
 	os.Exit(1)
 }
 
 // parseRemainingArgs separates command options from service names in the argument list
-// It extracts services specified with --include and returns command options and services
-func parseRemainingArgs(args []string) (cmdOptions, services []string) {
+// It extracts services specified with --include/--exclude and returns command options and services
+func parseRemainingArgs(args []string) (cmdOptions, includeServices, excludeServices []string) {
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--include" && i+1 < len(args) {
-			services = append(services, args[i+1])
+			includeServices = append(includeServices, args[i+1])
+			i++ // Skip the next argument as it's the service name
+		} else if args[i] == "--exclude" && i+1 < len(args) {
+			excludeServices = append(excludeServices, args[i+1])
 			i++ // Skip the next argument as it's the service name
 		} else {
 			cmdOptions = append(cmdOptions, args[i])
 		}
 	}
-	return cmdOptions, services
+	return cmdOptions, includeServices, excludeServices
 }
 
 // findComposeFile locates a Docker Compose file to use, either the specified file
@@ -118,7 +123,7 @@ func executePassthroughCommand(composePath string, args []string) error {
 
 // executeFilteredCommand loads a Docker Compose project, filters it to only include
 // the specified services, and then runs docker-compose with those services
-func executeFilteredCommand(composePath, composeCmd string, cmdOptions, services []string) error {
+func executeFilteredCommand(composePath, composeCmd string, cmdOptions, includeServices, excludeServices []string) error {
 	ctx := context.Background()
 
 	projectOptions, err := cli.NewProjectOptions(
@@ -135,7 +140,7 @@ func executeFilteredCommand(composePath, composeCmd string, cmdOptions, services
 		return fmt.Errorf("loading project: %w", err)
 	}
 
-	filteredProject, missingServices := filterServices(project, services)
+	filteredProject, missingServices := filterServices(project, includeServices, excludeServices)
 
 	if len(missingServices) > 0 {
 		fmt.Println("Warning: Some requested services were not found in the docker-compose file:")
@@ -166,26 +171,63 @@ func executeFilteredCommand(composePath, composeCmd string, cmdOptions, services
 
 // filterServices creates a filtered version of the project containing only the requested services
 // and returns a list of any services that were requested but not found
-func filterServices(project *types.Project, requestedServices []string) (*types.Project, []string) {
-	requestedServicesMap := make(map[string]bool)
-	for _, service := range requestedServices {
-		requestedServicesMap[service] = true
+func filterServices(project *types.Project, includeServices, excludeServices []string) (*types.Project, []string) {
+	// Convert include and exclude services to maps for quick lookup
+	includeMap := make(map[string]bool)
+	for _, service := range includeServices {
+		includeMap[service] = true
 	}
 
+	excludeMap := make(map[string]bool)
+	for _, service := range excludeServices {
+		excludeMap[service] = true
+	}
+
+	// Track which services we couldn't find
+	missingIncludeServices := make(map[string]bool)
+	for service := range includeMap {
+		missingIncludeServices[service] = true
+	}
+
+	missingExcludeServices := make(map[string]bool)
+	for service := range excludeMap {
+		missingExcludeServices[service] = true
+	}
+
+	// Create a filtered version of the project services
 	filteredServices := types.Services{}
-	var missingServices []string
+
+	// If include services are specified, only include those services
+	// If only exclude services are specified, include all except those
+	usingIncludeMode := len(includeServices) > 0
 
 	for name, service := range project.Services {
-		if requestedServicesMap[name] {
-			filteredServices[name] = service
-			delete(requestedServicesMap, name)
+		if usingIncludeMode {
+			// Include mode: only add services that are explicitly included
+			if includeMap[name] {
+				filteredServices[name] = service
+				delete(missingIncludeServices, name)
+			}
+		} else {
+			// Exclude mode: add all services except those explicitly excluded
+			if !excludeMap[name] {
+				filteredServices[name] = service
+			} else {
+				delete(missingExcludeServices, name)
+			}
 		}
 	}
 
-	for name := range requestedServicesMap {
-		missingServices = append(missingServices, name)
+	// Collect missing services for error reporting
+	var missingServices []string
+	for service := range missingIncludeServices {
+		missingServices = append(missingServices, service)
+	}
+	for service := range missingExcludeServices {
+		missingServices = append(missingServices, service)
 	}
 
+	// Create a filtered project with the selected services
 	filteredProject := *project
 	filteredProject.Services = filteredServices
 
