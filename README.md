@@ -13,12 +13,39 @@ Quay is a CLI tool designed to manage and filter Docker Compose services. It all
 
 ## Installation
 
-To install Quay, clone this repository and build the binary using Go:
+### Option 1: Homebrew (macOS and Linux)
 
 ```bash
-git clone https://github.com/yourusername/quay.git
+brew tap yarlson/quay
+brew install quay
+```
+
+### Option 2: Download from Releases
+
+1. Visit the [GitHub Releases page](https://github.com/yarlson/quay/releases)
+2. Download the appropriate binary for your operating system and architecture
+3. Extract the archive and move the binary to a location in your PATH
+
+```bash
+# Example for macOS/Linux
+chmod +x quay
+sudo mv quay /usr/local/bin/
+```
+
+### Option 3: Build from Source
+
+To build from source, you need Go installed on your system:
+
+```bash
+# Clone the repository
+git clone https://github.com/yarlson/quay.git
 cd quay
+
+# Build the binary
 go build -o quay .
+
+# Optionally, move the binary to a location in your PATH
+sudo mv quay /usr/local/bin/
 ```
 
 ## Usage
