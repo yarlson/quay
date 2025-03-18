@@ -1,0 +1,24 @@
+services:
+  nginx1:
+    image: nginx:latest
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx1/html:/usr/share/nginx/html
+    restart: unless-stopped
+
+  nginx2:
+    image: nginx:latest
+    ports:
+      - "81:80"
+    volumes:
+      - ./nginx2/html:/usr/share/nginx/html
+    restart: unless-stopped
+
+  nginx3:
+    image: nginx:latest
+    ports:
+      - "82:80"
+    volumes:
+      - ./nginx3/html:/usr/share/nginx/html
+    restart: unless-stopped 
