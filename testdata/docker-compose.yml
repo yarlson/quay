@@ -21,4 +21,4 @@ services:
       - "82:80"
     volumes:
       - ./nginx3/html:/usr/share/nginx/html
-    restart: unless-stopped 
+    restart: unless-stopped
