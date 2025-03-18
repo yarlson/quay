@@ -14,36 +14,71 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	defaultComposeFile1 = "docker-compose.yml"
+	defaultComposeFile2 = "docker-compose.yaml"
+)
+
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+}
+
+func run() error {
 	// Define a custom flag set to handle Docker Compose-style flags
 	flagSet := flag.NewFlagSet("compose-filter", flag.ExitOnError)
 	composeFile := flagSet.String("f", "", "Path to docker-compose file")
-	showConfig := flagSet.Bool("print", false, "Print filtered docker-compose config without executing")
 
 	// Parse arguments
-	err := flagSet.Parse(os.Args[1:])
-	if err != nil {
-		log.Fatalf("Error parsing arguments: %v", err)
+	if err := flagSet.Parse(os.Args[1:]); err != nil {
+		return fmt.Errorf("parsing arguments: %w", err)
 	}
 
 	// Get the remaining arguments (Docker Compose command and potential service names)
 	args := flagSet.Args()
+
+	// We need a command
 	if len(args) == 0 {
-		fmt.Println("Usage: compose-filter [options] COMMAND [SERVICE...]")
-		flagSet.PrintDefaults()
-		os.Exit(1)
+		printUsage(flagSet)
+		return nil
 	}
 
 	// The first arg is the Docker Compose command
 	composeCmd := args[0]
 
 	// The remaining args might be Docker Compose command options or service names
-	var cmdOptions []string
-	var services []string
+	cmdOptions, services := parseRemainingArgs(args[1:])
 
-	// Try to separate command options from service names
+	// If no compose file specified, look for default files
+	composePath, err := findComposeFile(*composeFile)
+	if err != nil {
+		return err
+	}
+
+	// If no services specified, just pass through to docker-compose
+	if len(services) == 0 {
+		return executePassthroughCommand(composePath, args)
+	}
+
+	// If services are specified, apply filtering
+	return executeFilteredCommand(composePath, composeCmd, cmdOptions, services)
+}
+
+func printUsage(flagSet *flag.FlagSet) {
+	fmt.Println("Usage: compose-filter [options] COMMAND [SERVICE...]")
+	fmt.Println("\nOptions:")
+	flagSet.PrintDefaults()
+	fmt.Println("\nExamples:")
+	fmt.Println("  compose-filter up -d                     # Run all services")
+	fmt.Println("  compose-filter up -d web db              # Run only web and db services")
+	fmt.Println("  compose-filter -f custom.yml up redis    # Use custom compose file")
+	os.Exit(1)
+}
+
+func parseRemainingArgs(args []string) (cmdOptions, services []string) {
 	serviceMode := false
-	for _, arg := range args[1:] {
+	for _, arg := range args {
 		// If arg starts with dash, it's likely an option for the command
 		if !serviceMode && strings.HasPrefix(arg, "-") {
 			cmdOptions = append(cmdOptions, arg)
@@ -53,48 +88,38 @@ func main() {
 			services = append(services, arg)
 		}
 	}
+	return cmdOptions, services
+}
 
-	// If no compose file specified, look for default files
-	composePath := *composeFile
-	if composePath == "" {
-		// Check for docker-compose.yml and docker-compose.yaml in the current directory
-		for _, filename := range []string{"docker-compose.yml", "docker-compose.yaml"} {
-			if _, err := os.Stat(filename); err == nil {
-				composePath = filename
-				break
-			}
-		}
+func findComposeFile(specifiedFile string) (string, error) {
+	if specifiedFile != "" {
+		return specifiedFile, nil
+	}
 
-		if composePath == "" {
-			log.Fatalf("No docker-compose file found")
+	// Check for default files in the current directory
+	for _, filename := range []string{defaultComposeFile1, defaultComposeFile2} {
+		if _, err := os.Stat(filename); err == nil {
+			return filename, nil
 		}
 	}
 
-	// If no services specified, just pass through to docker-compose
-	if len(services) == 0 {
-		// Prepare the docker-compose command
-		dockerComposeArgs := []string{}
-		if composePath != "" {
-			dockerComposeArgs = append(dockerComposeArgs, "-f", composePath)
-		}
-		dockerComposeArgs = append(dockerComposeArgs, args...)
+	return "", fmt.Errorf("no docker-compose file found")
+}
 
-		// Execute docker-compose directly
-		cmd := exec.Command("docker-compose", dockerComposeArgs...)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+func executePassthroughCommand(composePath string, args []string) error {
+	// Prepare the docker-compose command
+	dockerComposeArgs := []string{"-f", composePath}
+	dockerComposeArgs = append(dockerComposeArgs, args...)
 
-		fmt.Printf("Executing: docker-compose %s\n", strings.Join(dockerComposeArgs, " "))
+	// Execute docker-compose directly
+	cmd := exec.Command("docker-compose", dockerComposeArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
-		err = cmd.Run()
-		if err != nil {
-			log.Fatalf("Error executing docker-compose: %v", err)
-		}
-		return
-	}
+	return cmd.Run()
+}
 
-	// If services are specified, apply filtering
-
+func executeFilteredCommand(composePath, composeCmd string, cmdOptions, services []string) error {
 	// Load the docker-compose project
 	ctx := context.Background()
 
@@ -104,56 +129,34 @@ func main() {
 		cli.WithDotEnv,
 	)
 	if err != nil {
-		log.Fatalf("Error creating project options: %v", err)
+		return fmt.Errorf("creating project options: %w", err)
 	}
 
 	project, err := projectOptions.LoadProject(ctx)
 	if err != nil {
-		log.Fatalf("Error loading project: %v", err)
+		return fmt.Errorf("loading project: %w", err)
 	}
 
-	// Create a map of requested services for quick lookup
-	requestedServices := make(map[string]bool)
-	for _, service := range services {
-		requestedServices[service] = true
-	}
+	// Filter services and verify all requested services exist
+	filteredProject, missingServices := filterServices(project, services)
 
-	// Filter services - create a new Services map
-	filteredServices := types.Services{}
-	for name, service := range project.Services {
-		if requestedServices[name] {
-			filteredServices[name] = service
-		}
-	}
-
-	// Verify that all requested services were found
-	if len(filteredServices) != len(requestedServices) {
+	// Warn about missing services
+	if len(missingServices) > 0 {
 		fmt.Println("Warning: Some requested services were not found in the docker-compose file:")
-		for name := range requestedServices {
-			if _, exists := project.Services[name]; !exists {
-				fmt.Printf("  - %s\n", name)
-			}
+		for _, name := range missingServices {
+			fmt.Printf("  - %s\n", name)
 		}
 	}
-
-	// Update the filtered project's services
-	filteredProject := project
-	filteredProject.Services = filteredServices
 
 	// Marshal the filtered project to YAML
 	yamlData, err := yaml.Marshal(filteredProject)
 	if err != nil {
-		log.Fatalf("Error marshaling filtered project: %v", err)
-	}
-
-	// If print flag is set, just print the config and exit
-	if *showConfig {
-		fmt.Println(string(yamlData))
-		return
+		return fmt.Errorf("marshaling filtered project: %w", err)
 	}
 
 	// Prepare docker-compose command with any cmd options
-	dockerComposeArgs := append([]string{"-f", "-", composeCmd}, cmdOptions...)
+	dockerComposeArgs := []string{"-f", "-", composeCmd}
+	dockerComposeArgs = append(dockerComposeArgs, cmdOptions...)
 
 	// Add --remove-orphans flag for "up" command if not already specified
 	if composeCmd == "up" && !containsRemoveOrphans(cmdOptions) {
@@ -161,8 +164,7 @@ func main() {
 	}
 
 	// Add service names only for commands that work with service names
-	if strings.Contains(composeCmd, "up") || strings.Contains(composeCmd, "run") ||
-		strings.Contains(composeCmd, "start") || strings.Contains(composeCmd, "restart") {
+	if needsServiceNames(composeCmd) {
 		dockerComposeArgs = append(dockerComposeArgs, services...)
 	}
 
@@ -171,19 +173,54 @@ func main() {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	fmt.Printf("Executing: docker-compose %s with filtered services: %s\n",
-		strings.Join(dockerComposeArgs, " "), strings.Join(services, ", "))
+	return cmd.Run()
+}
 
-	err = cmd.Run()
-	if err != nil {
-		log.Fatalf("Error executing docker-compose: %v", err)
+func filterServices(project *types.Project, requestedServices []string) (*types.Project, []string) {
+	// Create a map of requested services for quick lookup
+	requestedServicesMap := make(map[string]bool)
+	for _, service := range requestedServices {
+		requestedServicesMap[service] = true
 	}
+
+	// Filter services - create a new Services map
+	filteredServices := types.Services{}
+	var missingServices []string
+
+	for name, service := range project.Services {
+		if requestedServicesMap[name] {
+			filteredServices[name] = service
+			delete(requestedServicesMap, name) // Remove from map to track missing services
+		}
+	}
+
+	// Any services remaining in the map weren't found
+	for name := range requestedServicesMap {
+		missingServices = append(missingServices, name)
+	}
+
+	// Create a copy of the project with filtered services
+	filteredProject := *project
+	filteredProject.Services = filteredServices
+
+	return &filteredProject, missingServices
 }
 
 // Helper function to check if --remove-orphans flag is present in options
 func containsRemoveOrphans(options []string) bool {
 	for _, opt := range options {
 		if opt == "--remove-orphans" {
+			return true
+		}
+	}
+	return false
+}
+
+// Helper function to determine if a command needs service names
+func needsServiceNames(cmd string) bool {
+	serviceCommands := []string{"up", "run", "start", "restart"}
+	for _, serviceCmd := range serviceCommands {
+		if strings.Contains(cmd, serviceCmd) {
 			return true
 		}
 	}
