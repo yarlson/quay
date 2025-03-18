@@ -4,9 +4,10 @@ Quay is a CLI tool designed to manage and filter Docker Compose services. It all
 
 ## Features
 
-- **Service Filtering**: 
+- **Service Filtering**:
   - Include specific services using the `--include` option
   - Exclude specific services using the `--exclude` option
+  - Note: `--include` and `--exclude` options cannot be used together in the same command
 - **Custom Compose File Support**: Use a custom Docker Compose file with the `-f` option.
 - **Command Flexibility**: Supports various Docker Compose commands like `up`, `down`, `restart`, and more.
 
@@ -33,7 +34,7 @@ To use Quay, you can specify the Docker Compose file and the services you want t
 
 - **Up**: Start services
   ```bash
-  ./quay up -d                                 # Run all services
+  ./quay up -d                                # Run all services
   ./quay up -d --include web --include db     # Run only web and db services
   ./quay up -d --exclude web                  # Run all services except web
   ```
@@ -57,4 +58,4 @@ Contributions are welcome! Please feel free to submit a pull request or open an 
 
 ## License
 
-Quay is open-sourced software licensed under the MIT license.
+Quay is open-sourced software licensed under the [MIT license](LICENSE).

@@ -47,6 +47,10 @@ func run() error {
 	composeCmd := args[0]
 	cmdOptions, includeServices, excludeServices := parseRemainingArgs(args[1:])
 
+	if len(includeServices) > 0 && len(excludeServices) > 0 {
+		return fmt.Errorf("cannot use both --include and --exclude options together")
+	}
+
 	composePath, err := findComposeFile(*composeFile)
 	if err != nil {
 		return err
@@ -67,6 +71,7 @@ func printUsage(flagSet *flag.FlagSet) {
 	fmt.Println("\nCommand options:")
 	fmt.Println("  --include SERVICE    Service to include (can be used multiple times)")
 	fmt.Println("  --exclude SERVICE    Service to exclude (can be used multiple times)")
+	fmt.Println("\nNote: --include and --exclude options cannot be used together")
 	fmt.Println("\nExamples:")
 	fmt.Println("  quay up -d                           # Run all services")
 	fmt.Println("  quay up -d --include web --include db  # Run only web and db services")
