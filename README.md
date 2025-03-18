@@ -1,6 +1,6 @@
 # Quay
 
-Quay is a command-line interface (CLI) tool designed to manage and filter Docker Compose services. It allows users to specify which services to run, using a Docker Compose file, and provides functionality to execute common Docker Compose commands with a focus on simplicity and usability.
+Quay is a CLI tool designed to manage and filter Docker Compose services. It allows users to specify which services to run, using a Docker Compose file, and provides functionality to execute common Docker Compose commands with a focus on simplicity and usability.
 
 ## Features
 
