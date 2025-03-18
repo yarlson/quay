@@ -1,0 +1,51 @@
+version: 2
+
+project_name: quay
+
+builds:
+  - id: quay
+    main: ./main.go
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/yarlson/quay/cmd.version={{.Version}}
+
+archives:
+  - id: release_archive
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+release:
+  github:
+    owner: yarlson
+    name: quay
+  draft: true
+
+checksum:
+  name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
+
+brews:
+  - name: quay
+    repository:
+      owner: yarlson
+      name: homebrew-quay
+    url_template: "https://github.com/yarlson/quay/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_author:
+      name: Yar Kravtsov
+      email: yarlson@gmail.com
+    homepage: "https://github.com/yarlson/quay"
+    description: "quay is a CLI tool designed to manage and filter Docker Compose services."
+    license: "MIT"
+    test: |
+      system "#{bin}/quay --version"
+    install: |
+      bin.install "quay"
