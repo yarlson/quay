@@ -4,12 +4,22 @@ Quay is a CLI tool designed to manage and filter Docker Compose services. It all
 
 ## Features
 
-- **Service Filtering**:
-  - Include specific services using the `--include` option
-  - Exclude specific services using the `--exclude` option
-  - Note: `--include` and `--exclude` options cannot be used together in the same command
-- **Custom Compose File Support**: Use a custom Docker Compose file with the `-f` option.
-- **Command Flexibility**: Supports various Docker Compose commands like `up`, `down`, `restart`, and more.
+Quay acts as a wrapper around Docker Compose, enhancing it with the ability to:
+
+- **Selectively Run Services** - Run only the services you need:
+  - Use `--include web db` to start only specific services
+  - Use `--exclude redis` to run everything except certain services
+  
+- **Override Port Mappings** - Change port bindings without modifying your compose file:
+  - Use `--port web:8080:80` to publish a container's port 80 to host port 8080
+  - Apply multiple port overrides in a single command
+  
+- **Retain Docker Compose Functionality** - Quay passes through all standard Docker Compose commands and options
+  - Works with all Docker Compose commands (`up`, `down`, `logs`, etc.)
+  - Supports Docker Compose flags like `-d` (detached mode)
+  - Specify custom compose files with `-f`
+
+Think of Quay as Docker Compose with additional filtering capabilities - perfect for complex applications where you only need to work with specific parts of the stack.
 
 ## Installation
 
@@ -77,6 +87,13 @@ You can also use Quay to run specific services with custom Docker Compose files:
 ```bash
 ./quay -f custom.yml up --include redis
 ./quay -f custom.yml up --exclude postgres
+```
+
+You can redefine published ports for services:
+
+```bash
+./quay up -d --port web:8080:80              # Map container port 80 to host port 8080 for web service
+./quay up -d --include web --port web:3000:80 # Run only web service with custom port mapping
 ```
 
 ## Contributing
