@@ -1,4 +1,4 @@
-module compose-filter
+module github.com/yarlson/quay
 
 go 1.24
 

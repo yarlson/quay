@@ -1,68 +1,55 @@
-# Docker Compose Filter
+# Quay
 
-A CLI tool that filters services from a docker-compose.yml file and pipes the result to docker-compose.
-
-## Installation
-
-1. Clone this repository
-2. Install dependencies:
-   ```
-   go mod download
-   ```
-3. Build the tool:
-   ```
-   go build -o compose-filter
-   ```
-
-## Usage
-
-```
-./compose-filter [options] [service1] [service2] ...
-```
-
-### Options
-
-- `-f string`: Path to docker-compose.yml file (default "docker-compose.yml")
-- `-cmd string`: Docker compose command to run (default "up -d")
-- `-print`: Print filtered docker-compose config without executing
-
-### Examples
-
-To start only the `nginx1` and `nginx3` services:
-
-```
-./compose-filter nginx1 nginx3
-```
-
-To stop only specific services:
-
-```
-./compose-filter -cmd "down" nginx1 nginx3
-```
-
-To use a different docker-compose file:
-
-```
-./compose-filter -f production-compose.yml nginx1 nginx3
-```
-
-To only print the filtered configuration without executing:
-
-```
-./compose-filter -print nginx1 nginx3
-```
-
-## How It Works
-
-1. Parses the docker-compose.yml file
-2. Filters out any services not specified in the command line
-3. Generates a new docker-compose configuration in memory
-4. Either prints the filtered configuration or pipes it to `docker-compose -f -`
+Quay is a command-line interface (CLI) tool designed to manage and filter Docker Compose services. It allows users to specify which services to run, using a Docker Compose file, and provides functionality to execute common Docker Compose commands with a focus on simplicity and usability.
 
 ## Features
 
-- Filters docker-compose services based on command-line arguments
-- Preserves volumes, networks, and other configuration
-- Does not modify the original docker-compose.yml file
-- Provides warnings for requested services that don't exist
-- Supports various docker-compose commands (up, down, restart, etc.) 
+- **Service Filtering**: Run specific services from a Docker Compose file.
+- **Custom Compose File Support**: Use a custom Docker Compose file with the `-f` option.
+- **Command Flexibility**: Supports various Docker Compose commands like `up`, `down`, `restart`, and more.
+
+## Installation
+
+To install Quay, clone this repository and build the binary using Go:
+
+```bash
+git clone https://github.com/yourusername/quay.git
+cd quay
+go build -o quay .
+```
+
+## Usage
+
+To use Quay, you can specify the Docker Compose file and the services you want to manage:
+
+```bash
+./quay -f path/to/docker-compose.yml up -d
+```
+
+### Basic Commands
+
+- **Up**: Start services
+  ```bash
+  ./quay up -d                     # Run all services
+  ./quay up -d web db              # Run only web and db services
+  ```
+- **Down**: Stop services
+  ```bash
+  ./quay down
+  ```
+
+### Advanced Usage
+
+You can also use Quay to run specific services with custom Docker Compose files:
+
+```bash
+./quay -f custom.yml up redis
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a pull request or open an issue if you have feedback or suggestions.
+
+## License
+
+Quay is open-sourced software licensed under the MIT license.

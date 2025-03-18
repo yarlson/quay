@@ -30,7 +30,7 @@ func main() {
 // run processes command line arguments and executes Docker Compose commands
 // with optional service filtering
 func run() error {
-	flagSet := flag.NewFlagSet("compose-filter", flag.ExitOnError)
+	flagSet := flag.NewFlagSet("quay", flag.ExitOnError)
 	composeFile := flagSet.String("f", "", "Path to docker-compose file")
 
 	if err := flagSet.Parse(os.Args[1:]); err != nil {
@@ -61,13 +61,13 @@ func run() error {
 
 // printUsage displays command line usage information and exits the program
 func printUsage(flagSet *flag.FlagSet) {
-	fmt.Println("Usage: compose-filter [options] COMMAND [SERVICE...]")
+	fmt.Println("Usage: quay [options] COMMAND [SERVICE...]")
 	fmt.Println("\nOptions:")
 	flagSet.PrintDefaults()
 	fmt.Println("\nExamples:")
-	fmt.Println("  compose-filter up -d                     # Run all services")
-	fmt.Println("  compose-filter up -d web db              # Run only web and db services")
-	fmt.Println("  compose-filter -f custom.yml up redis    # Use custom compose file")
+	fmt.Println("  quay up -d                     # Run all services")
+	fmt.Println("  quay up -d web db              # Run only web and db services")
+	fmt.Println("  quay -f custom.yml up redis    # Use custom compose file")
 	os.Exit(1)
 }
 
