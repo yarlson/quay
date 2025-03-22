@@ -214,6 +214,111 @@ services:
 	}
 }
 
+func TestGenerateYAML(t *testing.T) {
+	// Create a temporary directory for test files
+	tmpDir, err := os.MkdirTemp("", "compose-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a sample project with multiple services and configurations
+	project := &types.Project{
+		Name: "test-project",
+		Services: []types.ServiceConfig{
+			{
+				Name:  "web",
+				Image: "nginx:latest",
+				Ports: []types.ServicePortConfig{
+					{
+						Mode:      "host",
+						Published: "8080",
+						Target:    80,
+					},
+				},
+				Environment: map[string]*string{
+					"DEBUG": strPtr("true"),
+				},
+				Volumes: []types.ServiceVolumeConfig{
+					{
+						Type:   "bind",
+						Source: "./web",
+						Target: "/usr/share/nginx/html",
+					},
+				},
+			},
+			{
+				Name:  "api",
+				Image: "node:latest",
+				Ports: []types.ServicePortConfig{
+					{
+						Mode:      "host",
+						Published: "3000",
+						Target:    3000,
+					},
+				},
+				Environment: map[string]*string{
+					"NODE_ENV": strPtr("development"),
+				},
+			},
+		},
+	}
+
+	// Generate YAML
+	yamlData, err := GenerateYAML(project)
+	require.NoError(t, err)
+	require.NotEmpty(t, yamlData)
+
+	// Write the generated YAML to a temporary file
+	composePath := filepath.Join(tmpDir, "docker-compose.yml")
+	err = os.WriteFile(composePath, []byte(yamlData), 0644)
+	require.NoError(t, err)
+
+	// Verify the generated YAML contains expected content
+	assert.Contains(t, yamlData, "services:")
+	assert.Contains(t, yamlData, "web:")
+	assert.Contains(t, yamlData, "api:")
+	assert.Contains(t, yamlData, "image: nginx:latest")
+	assert.Contains(t, yamlData, "image: node:latest")
+	assert.Contains(t, yamlData, "ports:")
+	assert.Contains(t, yamlData, "- 8080:80")
+	assert.Contains(t, yamlData, "- 3000:3000")
+	assert.Contains(t, yamlData, "environment:")
+	assert.Contains(t, yamlData, "DEBUG: true")
+	assert.Contains(t, yamlData, "NODE_ENV: development")
+	assert.Contains(t, yamlData, "volumes:")
+	assert.Contains(t, yamlData, "- ./web:/usr/share/nginx/html")
+
+	// Verify the YAML is valid by loading it back
+	projectCopy, err := LoadComposeFile(composePath)
+	require.NoError(t, err)
+	require.NotNil(t, projectCopy)
+
+	// Verify the loaded project has the same number of services
+	assert.Equal(t, len(project.Services), len(projectCopy.Services))
+
+	// Create maps for easier comparison
+	originalServices := make(map[string]types.ServiceConfig)
+	for _, service := range project.Services {
+		originalServices[service.Name] = service
+	}
+
+	loadedServices := make(map[string]types.ServiceConfig)
+	for _, service := range projectCopy.Services {
+		loadedServices[service.Name] = service
+	}
+
+	// Compare services
+	for name, originalService := range originalServices {
+		loadedService, ok := loadedServices[name]
+		assert.True(t, ok, "Service %s not found in loaded project", name)
+		if ok {
+			assert.Equal(t, originalService.Image, loadedService.Image)
+			assert.Equal(t, len(originalService.Ports), len(loadedService.Ports))
+			assert.Equal(t, len(originalService.Environment), len(loadedService.Environment))
+			assert.Equal(t, len(originalService.Volumes), len(loadedService.Volumes))
+		}
+	}
+}
+
 // Helper function to find a service by name in a project
 func findService(t *testing.T, p *types.Project, name string) *types.ServiceConfig {
 	for i := range p.Services {
@@ -223,4 +328,9 @@ func findService(t *testing.T, p *types.Project, name string) *types.ServiceConf
 	}
 	t.Fatalf("service %s not found in project", name)
 	return nil
+}
+
+// Helper function to create a string pointer
+func strPtr(s string) *string {
+	return &s
 }
