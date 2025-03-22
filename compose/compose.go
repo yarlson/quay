@@ -296,3 +296,69 @@ func ExecuteCommand(project *types.Project, opts ExecuteOptions, executor Comman
 	logger.Debug("Successfully executed docker-compose command")
 	return nil
 }
+
+// RunComposeOperation orchestrates the complete Docker Compose operation workflow.
+// It loads the compose file, applies port mappings, and executes the command with the updated configuration.
+func RunComposeOperation(composeFile string, mappings []PortMapping, cmdArgs []string) error {
+	logger := logrus.WithFields(logrus.Fields{
+		"compose_file": composeFile,
+		"mappings":     len(mappings),
+		"cmd_args":     cmdArgs,
+	})
+
+	// Load the compose file
+	logger.Debug("Loading compose file")
+	project, err := LoadComposeFile(composeFile)
+	if err != nil {
+		return fmt.Errorf("failed to load compose file: %w", err)
+	}
+
+	// Apply port mappings if any
+	if len(mappings) > 0 {
+		logger.Debug("Applying port mappings")
+		if err := ApplyPortMappings(project, mappings); err != nil {
+			return fmt.Errorf("failed to apply port mappings: %w", err)
+		}
+	}
+
+	// Generate updated YAML configuration
+	logger.Debug("Generating updated YAML configuration")
+	if _, err := GenerateYAML(project); err != nil {
+		return fmt.Errorf("failed to generate YAML: %w", err)
+	}
+
+	// Parse command arguments
+	var cmdType CommandType
+	var detach bool
+	for _, arg := range cmdArgs {
+		switch arg {
+		case "up":
+			cmdType = CommandUp
+		case "down":
+			cmdType = CommandDown
+		case "ps":
+			cmdType = CommandPs
+		case "-d", "--detach":
+			detach = true
+		}
+	}
+
+	if cmdType == "" {
+		return fmt.Errorf("invalid command arguments: %v", cmdArgs)
+	}
+
+	// Execute the command
+	logger.Debug("Executing docker-compose command")
+	opts := ExecuteOptions{
+		WorkingDir: filepath.Dir(composeFile),
+		Command:    cmdType,
+		Detach:     detach,
+	}
+
+	if err := ExecuteCommand(project, opts, &DefaultCommandExecutor{}); err != nil {
+		return fmt.Errorf("failed to execute docker-compose command: %w", err)
+	}
+
+	logger.Debug("Successfully completed compose operation")
+	return nil
+}

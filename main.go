@@ -1,5 +1,7 @@
 package main
 
-func main() {
+import "github.com/yarlson/quay/cmd"
 
+func main() {
+	cmd.Execute()
 }
