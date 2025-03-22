@@ -3,8 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/a8m/envsubst"
+	"github.com/joho/godotenv"
 	"gopkg.in/yaml.v3"
 )
 
@@ -82,6 +84,51 @@ func (p *Project) processEnvVars() error {
 	return nil
 }
 
+// loadEnvFile reads and parses a .env file into a map of environment variables.
+// It returns an error if the file cannot be read or if the format is invalid.
+func loadEnvFile(filePath string) (map[string]string, error) {
+	// Read the .env file
+	envMap, err := godotenv.Read(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read .env file %s: %w", filePath, err)
+	}
+	return envMap, nil
+}
+
+// processEnvFile loads and merges environment variables from the specified .env file
+// with the project's existing environment variables.
+func (p *Project) processEnvFile() error {
+	if p.EnvFile == "" {
+		return nil
+	}
+
+	// Resolve the .env file path relative to the project path
+	envFilePath := p.EnvFile
+	if !filepath.IsAbs(envFilePath) && p.Path != "" {
+		envFilePath = filepath.Join(p.Path, envFilePath)
+	}
+
+	// Load environment variables from the .env file
+	envMap, err := loadEnvFile(envFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to load .env file for project %q: %w", p.Name, err)
+	}
+
+	// Initialize the project's environment map if it's nil
+	if p.Env == nil {
+		p.Env = make(map[string]string)
+	}
+
+	// Merge environment variables, with project's env taking precedence
+	for key, value := range envMap {
+		if _, exists := p.Env[key]; !exists {
+			p.Env[key] = value
+		}
+	}
+
+	return nil
+}
+
 // LoadConfig reads and parses a YAML configuration file into a Config struct.
 // It returns an error if the file cannot be read or if the YAML is invalid.
 func LoadConfig(filePath string) (*Config, error) {
@@ -99,8 +146,13 @@ func LoadConfig(filePath string) (*Config, error) {
 		return nil, fmt.Errorf("config file must contain at least one project")
 	}
 
-	// Process environment variables for each project
+	// Process each project's configuration
 	for i := range config.Projects {
+		// First load and merge .env file if specified
+		if err := config.Projects[i].processEnvFile(); err != nil {
+			return nil, err
+		}
+		// Then process environment variable substitutions
 		if err := config.Projects[i].processEnvVars(); err != nil {
 			return nil, fmt.Errorf("failed to process environment variables for project %q: %w", config.Projects[i].Name, err)
 		}

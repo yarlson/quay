@@ -178,3 +178,87 @@ projects:
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to process environment variables")
 }
+
+func TestEnvFileLoading(t *testing.T) {
+	// Create a temporary test directory
+	tmpDir := t.TempDir()
+
+	// Create a test .env file
+	envContent := `
+# Test environment variables
+API_KEY=secret123
+DEBUG=true
+# Commented out variable
+#DISABLED=false
+# Variable with spaces
+COMPLEX_VAR=value with spaces
+# Variable with quotes
+QUOTED_VAR="quoted value"
+`
+	envPath := filepath.Join(tmpDir, ".env")
+	err := os.WriteFile(envPath, []byte(envContent), 0644)
+	assert.NoError(t, err)
+
+	// Create a test config file
+	configContent := `
+projects:
+  - name: test-project
+    path: ` + tmpDir + `
+    compose_file: docker-compose.yml
+    env_file: .env
+    env:
+      OVERRIDE_VAR: "overridden"
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err = os.WriteFile(configPath, []byte(configContent), 0644)
+	assert.NoError(t, err)
+
+	// Test .env file loading
+	config, err := LoadConfig(configPath)
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+	assert.Len(t, config.Projects, 1)
+
+	project := config.Projects[0]
+	assert.Equal(t, "secret123", project.Env["API_KEY"], "Should load variable from .env file")
+	assert.Equal(t, "true", project.Env["DEBUG"], "Should load variable from .env file")
+	assert.Equal(t, "value with spaces", project.Env["COMPLEX_VAR"], "Should handle spaces in values")
+	assert.Equal(t, "quoted value", project.Env["QUOTED_VAR"], "Should handle quoted values")
+	assert.Equal(t, "overridden", project.Env["OVERRIDE_VAR"], "Should not override existing variables")
+
+	// Test non-existent .env file
+	invalidConfig := `
+projects:
+  - name: test-project
+    path: ` + tmpDir + `
+    compose_file: docker-compose.yml
+    env_file: non-existent.env
+`
+	invalidConfigPath := filepath.Join(tmpDir, "invalid_config.yaml")
+	err = os.WriteFile(invalidConfigPath, []byte(invalidConfig), 0644)
+	assert.NoError(t, err)
+
+	_, err = LoadConfig(invalidConfigPath)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to load .env file")
+
+	// Test absolute path resolution
+	absEnvPath := filepath.Join(tmpDir, "absolute.env")
+	err = os.WriteFile(absEnvPath, []byte("TEST_VAR=absolute"), 0644)
+	assert.NoError(t, err)
+
+	absConfig := `
+projects:
+  - name: test-project
+    path: ` + tmpDir + `
+    compose_file: docker-compose.yml
+    env_file: ` + absEnvPath + `
+`
+	absConfigPath := filepath.Join(tmpDir, "abs_config.yaml")
+	err = os.WriteFile(absConfigPath, []byte(absConfig), 0644)
+	assert.NoError(t, err)
+
+	config, err = LoadConfig(absConfigPath)
+	assert.NoError(t, err)
+	assert.Equal(t, "absolute", config.Projects[0].Env["TEST_VAR"], "Should handle absolute paths")
+}
