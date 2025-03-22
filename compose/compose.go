@@ -3,6 +3,7 @@ package compose
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -198,4 +199,100 @@ func GenerateYAML(project *types.Project) (string, error) {
 	}
 
 	return strings.Join(lines, "\n"), nil
+}
+
+// CommandType represents the type of Docker Compose command to execute
+type CommandType string
+
+const (
+	CommandUp   CommandType = "up"
+	CommandDown CommandType = "down"
+	CommandPs   CommandType = "ps"
+)
+
+// ExecuteOptions represents options for executing a Docker Compose command
+type ExecuteOptions struct {
+	WorkingDir string      // The working directory for the command
+	Command    CommandType // The command to execute
+	Detach     bool        // Whether to run containers in the background
+}
+
+// CommandExecutor is an interface for executing commands
+type CommandExecutor interface {
+	Run(cmd *exec.Cmd) error
+}
+
+// DefaultCommandExecutor is the default implementation of CommandExecutor
+type DefaultCommandExecutor struct{}
+
+func (e *DefaultCommandExecutor) Run(cmd *exec.Cmd) error {
+	return cmd.Run()
+}
+
+// ExecuteCommand executes a Docker Compose command with the provided project configuration.
+// The modified YAML configuration is piped directly to the docker-compose command's stdin.
+func ExecuteCommand(project *types.Project, opts ExecuteOptions, executor CommandExecutor) error {
+	logger := logrus.WithFields(logrus.Fields{
+		"project": project.Name,
+		"command": opts.Command,
+	})
+
+	// Generate the YAML configuration
+	yamlData, err := GenerateYAML(project)
+	if err != nil {
+		return fmt.Errorf("failed to generate YAML: %w", err)
+	}
+
+	// Build the command arguments
+	args := []string{"-f", "-"} // Use "-" to read from stdin
+
+	// Add command-specific arguments
+	switch opts.Command {
+	case CommandUp:
+		args = append(args, "up")
+		if opts.Detach {
+			args = append(args, "-d")
+		}
+	case CommandDown:
+		args = append(args, "down")
+	case CommandPs:
+		args = append(args, "ps")
+	default:
+		return fmt.Errorf("unsupported command type: %s", opts.Command)
+	}
+
+	// Set up the command
+	cmd := exec.Command("docker-compose", args...)
+	cmd.Dir = opts.WorkingDir
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Create a pipe for stdin
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdin pipe: %w", err)
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start docker-compose command: %w", err)
+	}
+
+	// Write the YAML configuration to stdin
+	if _, err := stdin.Write([]byte(yamlData)); err != nil {
+		return fmt.Errorf("failed to write YAML to stdin: %w", err)
+	}
+
+	// Close stdin to signal end of input
+	if err := stdin.Close(); err != nil {
+		return fmt.Errorf("failed to close stdin: %w", err)
+	}
+
+	// Wait for the command to complete
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("failed to execute docker-compose command: %w", err)
+	}
+
+	logger.Debug("Successfully executed docker-compose command")
+	return nil
 }

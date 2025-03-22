@@ -334,3 +334,68 @@ func findService(t *testing.T, p *types.Project, name string) *types.ServiceConf
 func strPtr(s string) *string {
 	return &s
 }
+
+func TestExecuteCommand(t *testing.T) {
+	// Create a temporary directory for test files
+	tmpDir, err := os.MkdirTemp("", "compose-test-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create a sample project with a simple service
+	project := &types.Project{
+		Name: "test-project",
+		Services: []types.ServiceConfig{
+			{
+				Name:  "web",
+				Image: "nginx:latest",
+				Ports: []types.ServicePortConfig{
+					{
+						Mode:      "host",
+						Published: "8080",
+						Target:    80,
+					},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name          string
+		opts          ExecuteOptions
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "invalid command",
+			opts: ExecuteOptions{
+				WorkingDir: tmpDir,
+				Command:    "invalid",
+			},
+			expectError:   true,
+			errorContains: "unsupported command type",
+		},
+		{
+			name: "invalid working directory",
+			opts: ExecuteOptions{
+				WorkingDir: "/nonexistent/directory",
+				Command:    CommandUp,
+			},
+			expectError:   true,
+			errorContains: "failed to start docker-compose command",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ExecuteCommand(project, tt.opts, &DefaultCommandExecutor{})
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorContains)
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
