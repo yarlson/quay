@@ -1,10 +1,13 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/yaml.v3"
 )
@@ -261,4 +264,121 @@ projects:
 	config, err = LoadConfig(absConfigPath)
 	assert.NoError(t, err)
 	assert.Equal(t, "absolute", config.Projects[0].Env["TEST_VAR"], "Should handle absolute paths")
+}
+
+func TestLogging(t *testing.T) {
+	// Create a buffer to capture log output
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	log.SetFormatter(&logrus.JSONFormatter{})
+
+	// Create a temporary test directory
+	tmpDir := t.TempDir()
+
+	// Create a test config file with various scenarios
+	configContent := `
+projects:
+  - name: test-project
+    path: ` + tmpDir + `
+    compose_file: docker-compose.yml
+    env_file: .env
+    env:
+      TEST_VAR: "${TEST_VAR:-default}"
+`
+	configPath := filepath.Join(tmpDir, "config.yaml")
+	err := os.WriteFile(configPath, []byte(configContent), 0644)
+	assert.NoError(t, err)
+
+	// Create a test .env file
+	envContent := `
+TEST_VAR=from_env
+`
+	envPath := filepath.Join(tmpDir, ".env")
+	err = os.WriteFile(envPath, []byte(envContent), 0644)
+	assert.NoError(t, err)
+
+	// Test with debug logging enabled
+	log.SetLevel(logrus.DebugLevel)
+	buf.Reset()
+
+	config, err := LoadConfig(configPath)
+	assert.NoError(t, err)
+	assert.NotNil(t, config)
+
+	// Parse log entries
+	var logEntries []map[string]interface{}
+	for _, line := range bytes.Split(buf.Bytes(), []byte("\n")) {
+		if len(line) == 0 {
+			continue
+		}
+		var entry map[string]interface{}
+		err := json.Unmarshal(line, &entry)
+		assert.NoError(t, err)
+		logEntries = append(logEntries, entry)
+	}
+
+	// Verify log entries
+	assert.Greater(t, len(logEntries), 0, "Should have log entries")
+
+	// Check for specific log entries
+	foundInfo := false
+	foundDebug := false
+	foundError := false
+
+	for _, entry := range logEntries {
+		level, ok := entry["level"].(string)
+		assert.True(t, ok, "Log entry should have a level")
+
+		switch level {
+		case "info":
+			foundInfo = true
+			msg, ok := entry["msg"].(string)
+			assert.True(t, ok)
+			if msg == "Loading configuration file" {
+				assert.Contains(t, entry, "file", "Info log should have file field")
+			}
+		case "debug":
+			foundDebug = true
+			msg, ok := entry["msg"].(string)
+			assert.True(t, ok)
+			if msg == "Substituting environment variables" {
+				assert.Contains(t, entry, "value", "Debug log should have value field")
+			}
+		case "error":
+			foundError = true
+		}
+	}
+
+	assert.True(t, foundInfo, "Should have info level logs")
+	assert.True(t, foundDebug, "Should have debug level logs")
+	assert.False(t, foundError, "Should not have error level logs")
+
+	// Test error logging
+	log.SetLevel(logrus.ErrorLevel)
+	buf.Reset()
+
+	// Try to load a non-existent file
+	_, err = LoadConfig("/non/existent/file.yaml")
+	assert.Error(t, err)
+
+	// Verify error log entry
+	var errorEntry map[string]interface{}
+	err = json.Unmarshal(bytes.Split(buf.Bytes(), []byte("\n"))[0], &errorEntry)
+	assert.NoError(t, err)
+
+	level, ok := errorEntry["level"].(string)
+	assert.True(t, ok)
+	assert.Equal(t, "error", level)
+
+	msg, ok := errorEntry["msg"].(string)
+	assert.True(t, ok)
+	assert.Contains(t, msg, "Failed to read config file")
+
+	// Test log level from environment variable
+	os.Setenv("QUAY_LOG_LEVEL", "debug")
+	defer os.Unsetenv("QUAY_LOG_LEVEL")
+
+	// Reinitialize logger to pick up new environment variable
+	InitLogger()
+	assert.Equal(t, logrus.DebugLevel, log.GetLevel())
 }
