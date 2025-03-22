@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/a8m/envsubst"
 	"gopkg.in/yaml.v3"
 )
 
@@ -51,6 +52,36 @@ type Remote struct {
 	Branch string `yaml:"branch"`
 }
 
+// substituteEnvVars performs environment variable substitution on a string
+// using the ${VAR:-default} syntax. If VAR is not set, default is used.
+func substituteEnvVars(value string) (string, error) {
+	return envsubst.String(value)
+}
+
+// processEnvVars performs environment variable substitution on all environment
+// variables in the project configuration.
+func (p *Project) processEnvVars() error {
+	if p.Env == nil {
+		return nil
+	}
+
+	// Create a new map to store processed values
+	processedEnv := make(map[string]string, len(p.Env))
+
+	// Process each environment variable
+	for key, value := range p.Env {
+		processed, err := substituteEnvVars(value)
+		if err != nil {
+			return fmt.Errorf("failed to substitute environment variables for key %q: %w", key, err)
+		}
+		processedEnv[key] = processed
+	}
+
+	// Replace the original map with processed values
+	p.Env = processedEnv
+	return nil
+}
+
 // LoadConfig reads and parses a YAML configuration file into a Config struct.
 // It returns an error if the file cannot be read or if the YAML is invalid.
 func LoadConfig(filePath string) (*Config, error) {
@@ -66,6 +97,13 @@ func LoadConfig(filePath string) (*Config, error) {
 
 	if len(config.Projects) == 0 {
 		return nil, fmt.Errorf("config file must contain at least one project")
+	}
+
+	// Process environment variables for each project
+	for i := range config.Projects {
+		if err := config.Projects[i].processEnvVars(); err != nil {
+			return nil, fmt.Errorf("failed to process environment variables for project %q: %w", config.Projects[i].Name, err)
+		}
 	}
 
 	return &config, nil
