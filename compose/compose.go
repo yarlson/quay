@@ -1,7 +1,6 @@
 package compose
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,7 +10,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/compose-spec/compose-go/loader"
+	"github.com/compose-spec/compose-go/cli"
 	"github.com/compose-spec/compose-go/types"
 	"github.com/sirupsen/logrus"
 )
@@ -30,6 +29,53 @@ func (e EnvVar) MarshalYAML() (interface{}, error) {
 	return string(e), nil
 }
 
+// ValidateServiceConfig validates a service configuration and returns an error if any required fields are missing or invalid
+func ValidateServiceConfig(service *types.ServiceConfig) error {
+	if service.Name == "" {
+		return fmt.Errorf("service name is required")
+	}
+	if service.Image == "" {
+		return fmt.Errorf("image is required for service %s", service.Name)
+	}
+
+	// Validate ports
+	for i, port := range service.Ports {
+		if port.Target == 0 {
+			return fmt.Errorf("container port is required for service %s port mapping %d", service.Name, i)
+		}
+		if port.Published == "" {
+			return fmt.Errorf("host port is required for service %s port mapping %d", service.Name, i)
+		}
+	}
+
+	// Validate volumes
+	for i, volume := range service.Volumes {
+		if volume.Target == "" {
+			return fmt.Errorf("volume target is required for service %s volume %d", service.Name, i)
+		}
+	}
+
+	return nil
+}
+
+// ValidateProject validates a project configuration and returns an error if any required fields are missing or invalid
+func ValidateProject(project *types.Project) error {
+	if project.Name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if len(project.Services) == 0 {
+		return fmt.Errorf("project must contain at least one service")
+	}
+
+	for i := range project.Services {
+		if err := ValidateServiceConfig(&project.Services[i]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // LoadComposeFile loads and parses a Docker Compose file from the provided path.
 // It returns a types.Project containing the parsed configuration and any error encountered.
 func LoadComposeFile(path string) (*types.Project, error) {
@@ -46,24 +92,43 @@ func LoadComposeFile(path string) (*types.Project, error) {
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
-	// Get the directory containing the compose file
-	workingDir := filepath.Dir(absPath)
-
-	// Load the compose file
-	config, err := loader.LoadWithContext(context.Background(), types.ConfigDetails{
-		WorkingDir: workingDir,
-		ConfigFiles: []types.ConfigFile{
-			{
-				Filename: absPath,
-			},
-		},
-	})
+	// Read the raw YAML to get the project name
+	data, err := os.ReadFile(absPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load compose file: %w", err)
+		return nil, fmt.Errorf("failed to read compose file: %w", err)
+	}
+
+	var rawConfig struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal(data, &rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	// Create project options with environment variable support
+	options, err := cli.NewProjectOptions(
+		[]string{absPath},
+		cli.WithOsEnv,
+		cli.WithDotEnv,
+		cli.WithName(rawConfig.Name),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create project options: %w", err)
+	}
+
+	// Load the project
+	project, err := cli.ProjectFromOptions(options)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load project: %w", err)
+	}
+
+	// Validate the project configuration
+	if err := ValidateProject(project); err != nil {
+		return nil, fmt.Errorf("invalid project configuration: %w", err)
 	}
 
 	logger.Debug("Successfully loaded compose file")
-	return config, nil
+	return project, nil
 }
 
 // ApplyPortMappings applies the provided port mapping overrides to the project's services.

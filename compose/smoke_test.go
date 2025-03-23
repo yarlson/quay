@@ -19,6 +19,7 @@ func TestSmokeTestSuite(t *testing.T) {
 func (s *SmokeTestSuite) TestLoadSimpleComposeFile() {
 	// Create a simple test compose file
 	composeContent := `
+name: test-project
 version: "3.8"
 services:
   web:
