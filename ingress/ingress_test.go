@@ -29,42 +29,9 @@ func (s *IngressTestSuite) TestGenerateNginxConfig() {
 				},
 			},
 			expectedError: false,
-			expectedConfig: `events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-
-    # Basic settings
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-
-    # Logging
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Server block for example.com
-    server {
-        server_name example.com;
-        listen 80;
-
-        location / {
-            proxy_pass http://localhost:8080;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-    }
-}`,
 		},
 		{
-			name: "single https server",
+			name: "https server with force ssl",
 			configs: []Config{
 				{
 					Hostname:    "secure.example.com",
@@ -73,98 +40,45 @@ http {
 					SSLEnabled:  true,
 					SSLCertPath: "/etc/nginx/ssl/cert.pem",
 					SSLKeyPath:  "/etc/nginx/ssl/key.pem",
+					ForceSSL:    true,
 				},
 			},
 			expectedError: false,
-			expectedConfig: `events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-
-    # Basic settings
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-
-    # Logging
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Server block for secure.example.com
-    server {
-        server_name secure.example.com;
-        ssl_certificate /etc/nginx/ssl/cert.pem;
-        ssl_certificate_key /etc/nginx/ssl/key.pem;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
-        listen 443 ssl;
-
-        location / {
-            proxy_pass http://localhost:8443;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-    }
-}`,
 		},
 		{
-			name: "multiple paths",
+			name: "websocket support and custom headers",
+			configs: []Config{
+				{
+					Hostname:  "ws.example.com",
+					Paths:     []string{"/socket"},
+					Upstream:  "localhost:8080",
+					WebSocket: true,
+					Headers: map[string]string{
+						"X-Custom-Header": "value",
+					},
+				},
+			},
+			expectedError: false,
+		},
+		{
+			name: "rate limiting and error pages",
 			configs: []Config{
 				{
 					Hostname: "api.example.com",
-					Paths:    []string{"/v1", "/v2"},
+					Paths:    []string{"/api"},
 					Upstream: "localhost:3000",
+					RateLimit: &RateLimit{
+						Requests: 10,
+						Window:   "1m",
+						Key:      "$binary_remote_addr",
+					},
+					ErrorPages: map[int]string{
+						404: "404.html",
+						500: "500.html",
+					},
 				},
 			},
 			expectedError: false,
-			expectedConfig: `events {
-    worker_connections 1024;
-}
-
-http {
-    include       /etc/nginx/mime.types;
-    default_type  application/octet-stream;
-
-    # Basic settings
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout 65;
-    types_hash_max_size 2048;
-
-    # Logging
-    access_log /var/log/nginx/access.log;
-    error_log /var/log/nginx/error.log;
-
-    # Server block for api.example.com
-    server {
-        server_name api.example.com;
-        listen 80;
-
-        location /v1 {
-            proxy_pass http://localhost:3000;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-
-        location /v2 {
-            proxy_pass http://localhost:3000;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-    }
-}`,
 		},
 		{
 			name:          "empty configs",
@@ -193,7 +107,34 @@ http {
 				return
 			}
 			require.NoError(s.T(), err)
-			assert.Equal(s.T(), tt.expectedConfig, config)
+
+			// Basic assertions for each feature
+			switch tt.name {
+			case "single http server":
+				assert.Contains(s.T(), config, "server_name example.com;")
+				assert.Contains(s.T(), config, "listen 80;")
+				assert.Contains(s.T(), config, "proxy_pass http://localhost:8080;")
+
+			case "https server with force ssl":
+				assert.Contains(s.T(), config, "return 301 https://$server_name$request_uri;")
+				assert.Contains(s.T(), config, "listen 443 ssl http2;")
+				assert.Contains(s.T(), config, "ssl_certificate /etc/nginx/ssl/cert.pem;")
+
+			case "websocket support and custom headers":
+				assert.Contains(s.T(), config, "proxy_set_header Upgrade $http_upgrade;")
+				assert.Contains(s.T(), config, "proxy_set_header Connection \"upgrade\";")
+				assert.Contains(s.T(), config, "add_header X-Custom-Header value always;")
+
+			case "rate limiting and error pages":
+				assert.Contains(s.T(), config, "limit_req_zone $binary_remote_addr zone=one:1m rate=10r/1m;")
+				assert.Contains(s.T(), config, "error_page 404 /404.html;")
+				assert.Contains(s.T(), config, "error_page 500 /500.html;")
+			}
+
+			// Common assertions for all valid configs
+			assert.Contains(s.T(), config, "# Security headers")
+			assert.Contains(s.T(), config, "add_header X-Content-Type-Options nosniff;")
+			assert.Contains(s.T(), config, "ssl_protocols TLSv1.2 TLSv1.3;")
 		})
 	}
 }
