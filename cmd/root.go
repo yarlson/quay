@@ -5,22 +5,48 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/yarlson/quay/config"
+	"github.com/yarlson/quay/lifecycle"
 )
 
 var (
-	configFile string
-	project    string
-	branch     string
+	configFile  string
+	projectName string
+	branch      string
 )
+
+// setupFlags adds persistent flags to the root command
+func setupFlags(cmd *cobra.Command) {
+	// Add persistent flags for config file and project name
+	cmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "path to config file (required)")
+	cmd.PersistentFlags().StringVarP(&projectName, "project", "p", "", "name of the project to operate on")
+	cmd.PersistentFlags().StringVarP(&branch, "branch", "b", "", "branch to use for remote projects")
+
+	// Mark config flag as required
+	if err := cmd.MarkPersistentFlagRequired("config"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error marking config flag as required: %v\n", err)
+		os.Exit(1)
+	}
+}
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "quay",
-	Short: "A CLI tool for managing Docker Compose operations with port mapping support",
-	Long: `Quay is a CLI tool that extends Docker Compose functionality with support for
-dynamic port mapping overrides. It allows you to modify port mappings without
-editing the compose file directly.`,
+	Short: "A CLI tool for managing multiple Docker projects",
+	Long: `Quay is a CLI tool that helps you manage multiple Docker projects locally.
+It provides commands to start, stop, reload, and check the status of your projects.
+You can also manage remote projects by specifying their repository URLs.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		// Check if config file is provided
+		if configFile == "" {
+			return fmt.Errorf("config file is required")
+		}
+
+		// Create a lifecycle manager
+		manager := lifecycle.NewManager(configFile, projectName, branch)
+
+		// Process projects based on the command
+		return manager.ProcessProjects("start")
+	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -33,85 +59,13 @@ func Execute() {
 }
 
 func init() {
-	// Add persistent flags
-	rootCmd.PersistentFlags().StringVarP(&configFile, "config", "c", "", "Path to the configuration file")
-	rootCmd.PersistentFlags().StringVarP(&project, "project", "p", "", "Name of the project to operate on (if not specified, operates on all projects)")
-	rootCmd.PersistentFlags().StringVarP(&branch, "branch", "b", "", "Override the branch for remote projects")
-
 	// Add commands
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
 	rootCmd.AddCommand(reloadCmd)
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(cleanupCmd)
-}
 
-// Common function to validate and process projects
-func processProjects(cmdName string) error {
-	// Check if config file is provided
-	if configFile == "" {
-		return fmt.Errorf("config file is required")
-	}
-
-	// Load the configuration file
-	cfg, err := config.LoadConfig(configFile)
-	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
-	}
-
-	// Filter projects if project name is specified
-	var projects []config.Project
-	if project != "" {
-		found := false
-		for _, p := range cfg.Projects {
-			if p.Name == project {
-				projects = append(projects, p)
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("project %s not found in configuration", project)
-		}
-	} else {
-		projects = cfg.Projects
-	}
-
-	// Process each project
-	for _, project := range projects {
-		// Override branch if specified
-		if branch != "" && project.Remote != nil {
-			project.Remote.Branch = branch
-		}
-
-		// Handle remote project provisioning
-		if project.Remote != nil {
-			if err := handleRemoteProject(&project); err != nil {
-				return fmt.Errorf("failed to handle remote project %s: %w", project.Name, err)
-			}
-		}
-
-		// Execute the requested command
-		var err error
-		switch cmdName {
-		case "start":
-			err = startProject(&project)
-		case "stop":
-			err = stopProject(&project)
-		case "reload":
-			err = reloadProject(&project)
-		case "status":
-			err = statusProject(&project)
-		case "cleanup":
-			err = cleanupProject(&project)
-		default:
-			return fmt.Errorf("invalid command: %s", cmdName)
-		}
-
-		if err != nil {
-			return fmt.Errorf("failed to %s project %s: %w", cmdName, project.Name, err)
-		}
-	}
-
-	return nil
+	// Set up flags
+	setupFlags(rootCmd)
 }
