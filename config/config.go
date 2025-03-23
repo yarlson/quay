@@ -199,25 +199,138 @@ func (p *Project) processEnvFile() error {
 	return nil
 }
 
+// validateProject validates a project configuration and returns an error if any required fields are missing
+func (p *Project) validate() error {
+	if p.Name == "" {
+		return fmt.Errorf("project name is required")
+	}
+	if p.Path == "" {
+		return fmt.Errorf("project path is required")
+	}
+	if p.ComposeFile == "" {
+		return fmt.Errorf("compose_file is required")
+	}
+
+	// Validate ingress configuration if enabled
+	if p.Ingress != nil && p.Ingress.Enabled {
+		if p.Ingress.Hostname == "" {
+			return fmt.Errorf("hostname is required when ingress is enabled")
+		}
+		if len(p.Ingress.Paths) == 0 {
+			return fmt.Errorf("at least one path is required when ingress is enabled")
+		}
+	}
+
+	// Validate remote configuration if provided
+	if p.Remote != nil {
+		if p.Remote.Repo == "" {
+			return fmt.Errorf("repo is required when remote is configured")
+		}
+		if p.Remote.Branch == "" {
+			p.Remote.Branch = "main" // Set default branch if not specified
+		}
+	}
+
+	return nil
+}
+
+// processProjectPaths processes and validates project paths, making them absolute if necessary
+func (p *Project) processProjectPaths(configDir string) error {
+	// Make project path absolute if it's relative
+	if !filepath.IsAbs(p.Path) {
+		p.Path = filepath.Join(configDir, p.Path)
+	}
+
+	// Make compose file path absolute if it's relative
+	if !filepath.IsAbs(p.ComposeFile) {
+		p.ComposeFile = filepath.Join(p.Path, p.ComposeFile)
+	}
+
+	// Make context path absolute if it's relative and not empty
+	if p.Context != "" && !filepath.IsAbs(p.Context) {
+		p.Context = filepath.Join(p.Path, p.Context)
+	}
+
+	return nil
+}
+
+// processAllEnvVars processes environment variables in all relevant fields
+func (p *Project) processAllEnvVars() error {
+	// Process path fields
+	if processed, err := substituteEnvVars(p.Path); err != nil {
+		return fmt.Errorf("failed to process path: %w", err)
+	} else {
+		p.Path = processed
+	}
+
+	if processed, err := substituteEnvVars(p.ComposeFile); err != nil {
+		return fmt.Errorf("failed to process compose_file: %w", err)
+	} else {
+		p.ComposeFile = processed
+	}
+
+	if p.Context != "" {
+		if processed, err := substituteEnvVars(p.Context); err != nil {
+			return fmt.Errorf("failed to process context: %w", err)
+		} else {
+			p.Context = processed
+		}
+	}
+
+	// Process ingress fields if enabled
+	if p.Ingress != nil && p.Ingress.Enabled {
+		if processed, err := substituteEnvVars(p.Ingress.Hostname); err != nil {
+			return fmt.Errorf("failed to process ingress hostname: %w", err)
+		} else {
+			p.Ingress.Hostname = processed
+		}
+	}
+
+	// Process remote fields if configured
+	if p.Remote != nil {
+		if processed, err := substituteEnvVars(p.Remote.Repo); err != nil {
+			return fmt.Errorf("failed to process remote repo: %w", err)
+		} else {
+			p.Remote.Repo = processed
+		}
+
+		if processed, err := substituteEnvVars(p.Remote.Branch); err != nil {
+			return fmt.Errorf("failed to process remote branch: %w", err)
+		} else {
+			p.Remote.Branch = processed
+		}
+	}
+
+	// Process environment variables last (after all other fields are processed)
+	return p.processEnvVars()
+}
+
 // LoadConfig reads and parses a YAML configuration file into a Config struct.
 // It returns an error if the file cannot be read or if the YAML is invalid.
 func LoadConfig(filePath string) (*Config, error) {
 	log.WithField("file", filePath).Info("Loading configuration file")
 
-	data, err := os.ReadFile(filePath)
+	// Get the absolute path and directory of the config file
+	absPath, err := filepath.Abs(filePath)
 	if err != nil {
-		log.WithError(err).WithField("file", filePath).Error("Failed to read config file")
-		return nil, fmt.Errorf("failed to read config file %s: %w", filePath, err)
+		return nil, fmt.Errorf("failed to get absolute path for config file: %w", err)
+	}
+	configDir := filepath.Dir(absPath)
+
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		log.WithError(err).WithField("file", absPath).Error("Failed to read config file")
+		return nil, fmt.Errorf("failed to read config file %s: %w", absPath, err)
 	}
 
 	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.WithError(err).WithField("file", filePath).Error("Failed to parse YAML config")
+		log.WithError(err).WithField("file", absPath).Error("Failed to parse YAML config")
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
 	if len(config.Projects) == 0 {
-		log.WithField("file", filePath).Error("Config file contains no projects")
+		log.WithField("file", absPath).Error("Config file contains no projects")
 		return nil, fmt.Errorf("config file must contain at least one project")
 	}
 
@@ -228,17 +341,27 @@ func LoadConfig(filePath string) (*Config, error) {
 		project := &config.Projects[i]
 		log.WithField("project", project.Name).Debug("Processing project configuration")
 
-		// First load and merge .env file if specified
+		// Validate the project configuration
+		if err := project.validate(); err != nil {
+			return nil, fmt.Errorf("invalid configuration for project %q: %w", project.Name, err)
+		}
+
+		// Process all environment variables in the project configuration
+		if err := project.processAllEnvVars(); err != nil {
+			return nil, fmt.Errorf("failed to process environment variables for project %q: %w", project.Name, err)
+		}
+
+		// Process project paths
+		if err := project.processProjectPaths(configDir); err != nil {
+			return nil, fmt.Errorf("failed to process paths for project %q: %w", project.Name, err)
+		}
+
+		// Load and merge .env file if specified (after paths are processed)
 		if err := project.processEnvFile(); err != nil {
 			return nil, err
 		}
-		// Then process environment variable substitutions
-		if err := project.processEnvVars(); err != nil {
-			log.WithError(err).WithField("project", project.Name).Error("Failed to process environment variables")
-			return nil, fmt.Errorf("failed to process environment variables for project %q: %w", project.Name, err)
-		}
 	}
 
-	log.WithField("file", filePath).Info("Successfully loaded and processed configuration")
+	log.WithField("file", absPath).Info("Successfully loaded and processed configuration")
 	return &config, nil
 }

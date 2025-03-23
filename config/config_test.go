@@ -360,6 +360,186 @@ TEST_VAR=from_env
 	s.Equal(logrus.DebugLevel, log.GetLevel())
 }
 
+func (s *ConfigTestSuite) TestValidation() {
+	tests := []struct {
+		name        string
+		config      string
+		expectError string
+	}{
+		{
+			name: "missing project name",
+			config: `
+projects:
+  - path: /test/path
+    compose_file: docker-compose.yml
+`,
+			expectError: "project name is required",
+		},
+		{
+			name: "missing project path",
+			config: `
+projects:
+  - name: test-project
+    compose_file: docker-compose.yml
+`,
+			expectError: "project path is required",
+		},
+		{
+			name: "missing compose file",
+			config: `
+projects:
+  - name: test-project
+    path: /test/path
+`,
+			expectError: "compose_file is required",
+		},
+		{
+			name: "invalid ingress config - missing hostname",
+			config: `
+projects:
+  - name: test-project
+    path: /test/path
+    compose_file: docker-compose.yml
+    ingress:
+      enabled: true
+      paths:
+        - /api
+`,
+			expectError: "hostname is required when ingress is enabled",
+		},
+		{
+			name: "invalid ingress config - no paths",
+			config: `
+projects:
+  - name: test-project
+    path: /test/path
+    compose_file: docker-compose.yml
+    ingress:
+      enabled: true
+      hostname: test.example.com
+`,
+			expectError: "at least one path is required when ingress is enabled",
+		},
+		{
+			name: "invalid remote config - missing repo",
+			config: `
+projects:
+  - name: test-project
+    path: /test/path
+    compose_file: docker-compose.yml
+    remote:
+      branch: main
+`,
+			expectError: "repo is required when remote is configured",
+		},
+		{
+			name: "valid config with default remote branch",
+			config: `
+projects:
+  - name: test-project
+    path: /test/path
+    compose_file: docker-compose.yml
+    remote:
+      repo: git@github.com:user/repo.git
+`,
+			expectError: "",
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			configPath := s.createTestFile("config.yaml", tt.config)
+			config, err := LoadConfig(configPath)
+			if tt.expectError != "" {
+				s.Error(err)
+				s.Contains(err.Error(), tt.expectError)
+			} else {
+				s.NoError(err)
+				s.NotNil(config)
+				if config.Projects[0].Remote != nil {
+					s.Equal("main", config.Projects[0].Remote.Branch)
+				}
+			}
+		})
+	}
+}
+
+func (s *ConfigTestSuite) TestPathProcessing() {
+	// Create project directory and .env file
+	projectDir := filepath.Join(s.tmpDir, "project")
+	err := os.MkdirAll(projectDir, 0755)
+	s.Require().NoError(err)
+
+	envFile := filepath.Join(projectDir, ".env")
+	err = os.WriteFile(envFile, []byte("TEST=value"), 0644)
+	s.Require().NoError(err)
+
+	// Create a test config file with relative paths
+	configPath := s.createTestFile("config.yaml", `
+projects:
+  - name: test-project
+    path: ./project
+    compose_file: docker-compose.yml
+    context: ./build
+    env_file: .env
+`)
+
+	config, err := LoadConfig(configPath)
+	s.Require().NoError(err)
+	s.NotNil(config)
+
+	project := config.Projects[0]
+	configDir := filepath.Dir(configPath)
+
+	// Check that paths are made absolute
+	s.Equal(filepath.Join(configDir, "project"), project.Path)
+	s.Equal(filepath.Join(configDir, "project", "docker-compose.yml"), project.ComposeFile)
+	s.Equal(filepath.Join(configDir, "project", "build"), project.Context)
+
+	// Check that environment variables were loaded
+	s.Equal("value", project.Env["TEST"])
+}
+
+func (s *ConfigTestSuite) TestEnvVarSubstitutionInPaths() {
+	// Set up test environment variables
+	_ = os.Setenv("TEST_PROJECT_PATH", "/custom/path")
+	_ = os.Setenv("TEST_COMPOSE_FILE", "custom-compose.yml")
+	_ = os.Setenv("TEST_HOSTNAME", "test.example.com")
+	_ = os.Setenv("TEST_REPO", "git@github.com:user/repo.git")
+	defer func() {
+		_ = os.Unsetenv("TEST_PROJECT_PATH")
+		_ = os.Unsetenv("TEST_COMPOSE_FILE")
+		_ = os.Unsetenv("TEST_HOSTNAME")
+		_ = os.Unsetenv("TEST_REPO")
+	}()
+
+	configPath := s.createTestFile("config.yaml", `
+projects:
+  - name: test-project
+    path: "${TEST_PROJECT_PATH}"
+    compose_file: "${TEST_COMPOSE_FILE}"
+    ingress:
+      enabled: true
+      hostname: "${TEST_HOSTNAME}"
+      paths:
+        - /api
+    remote:
+      repo: "${TEST_REPO}"
+      branch: "${NON_EXISTENT_BRANCH:-main}"
+`)
+
+	config, err := LoadConfig(configPath)
+	s.Require().NoError(err)
+	s.NotNil(config)
+
+	project := config.Projects[0]
+	s.Equal("/custom/path", project.Path)
+	s.Equal("/custom/path/custom-compose.yml", project.ComposeFile)
+	s.Equal("test.example.com", project.Ingress.Hostname)
+	s.Equal("git@github.com:user/repo.git", project.Remote.Repo)
+	s.Equal("main", project.Remote.Branch)
+}
+
 func TestConfigSuite(t *testing.T) {
 	suite.Run(t, new(ConfigTestSuite))
 }
