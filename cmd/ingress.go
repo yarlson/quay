@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+
 	"github.com/yarlson/quay/config"
 	"github.com/yarlson/quay/ingress"
 )
@@ -15,11 +17,17 @@ var (
 // ingressCmd represents the ingress command
 var ingressCmd = &cobra.Command{
 	Use:   "ingress",
-	Short: "Configure and manage ingress routing with Nginx",
-	Long: `Configure and manage ingress routing with Nginx.
+	Short: "Configure and manage ingress routing with Nginx in Docker",
+	Long: `Configure and manage ingress routing with Nginx running in a Docker container.
 This command reads the project configurations and sets up Nginx as a reverse proxy,
-handling SSL certificates and routing traffic to the appropriate services.`,
+handling SSL certificates and routing traffic to the appropriate services.
+The Nginx instance runs in a Docker container specified by the QUAY_NGINX_CONTAINER environment variable.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Check if Nginx container name is set
+		if os.Getenv("QUAY_NGINX_CONTAINER") == "" {
+			return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable must be set")
+		}
+
 		// Load the configuration file
 		cfg, err := config.LoadConfig(configFile)
 		if err != nil {
@@ -27,7 +35,7 @@ handling SSL certificates and routing traffic to the appropriate services.`,
 		}
 
 		// Convert project configurations to ingress configurations
-		var ingressConfigs []ingress.IngressConfig
+		var ingressConfigs []ingress.Config
 		for _, project := range cfg.Projects {
 			if project.Ingress == nil || !project.Ingress.Enabled {
 				continue
@@ -35,7 +43,7 @@ handling SSL certificates and routing traffic to the appropriate services.`,
 
 			// Create ingress configuration for each path
 			for _, path := range project.Ingress.Paths {
-				ingressConfigs = append(ingressConfigs, ingress.IngressConfig{
+				ingressConfigs = append(ingressConfigs, ingress.Config{
 					Hostname:   project.Ingress.Hostname,
 					Paths:      []string{path},
 					Upstream:   fmt.Sprintf("localhost:%s", project.Ports[0].Host), // Use the first port mapping

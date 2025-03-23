@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// NginxManager handles Nginx process management and configuration
+// NginxManager handles Nginx process management and configuration in a Docker container
 type NginxManager struct {
 	ConfigDir  string // Directory containing Nginx configuration files
 	ConfigFile string // Name of the Nginx configuration file
@@ -37,91 +37,68 @@ func (m *NginxManager) WriteConfig(config string) error {
 	return nil
 }
 
-// ReloadNginx reloads the Nginx configuration
+// ReloadNginx reloads the Nginx configuration in the Docker container
 func (m *NginxManager) ReloadNginx() error {
 	// Skip actual Nginx operations in test mode
 	if os.Getenv("QUAY_TEST_MODE") == "true" {
 		return nil
 	}
 
-	// Check if Nginx is running in a Docker container
 	containerName := os.Getenv("QUAY_NGINX_CONTAINER")
-	if containerName != "" {
-		// Reload Nginx in the Docker container
-		cmd := exec.Command("docker", "exec", containerName, "nginx", "-s", "reload")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to reload Nginx in container: %s: %w", string(output), err)
-		}
-		return nil
+	if containerName == "" {
+		return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable not set")
 	}
 
-	// Reload local Nginx process
-	cmd := exec.Command("nginx", "-s", "reload")
+	// Reload Nginx in the Docker container
+	cmd := exec.Command("docker", "exec", containerName, "nginx", "-s", "reload")
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to reload Nginx: %s: %w", string(output), err)
+		return fmt.Errorf("failed to reload Nginx in container: %s: %w", string(output), err)
 	}
 
 	return nil
 }
 
-// RestartNginx restarts the Nginx process
+// RestartNginx restarts the Nginx container
 func (m *NginxManager) RestartNginx() error {
 	// Skip actual Nginx operations in test mode
 	if os.Getenv("QUAY_TEST_MODE") == "true" {
 		return nil
 	}
 
-	// Check if Nginx is running in a Docker container
 	containerName := os.Getenv("QUAY_NGINX_CONTAINER")
-	if containerName != "" {
-		// Restart the Nginx container
-		cmd := exec.Command("docker", "restart", containerName)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to restart Nginx container: %s: %w", string(output), err)
-		}
-		return nil
+	if containerName == "" {
+		return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable not set")
 	}
 
-	// Restart local Nginx process
-	cmd := exec.Command("nginx", "-s", "stop")
+	// Restart the Nginx container
+	cmd := exec.Command("docker", "restart", containerName)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to stop Nginx: %s: %w", string(output), err)
-	}
-
-	cmd = exec.Command("nginx")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("failed to start Nginx: %s: %w", string(output), err)
+		return fmt.Errorf("failed to restart Nginx container: %s: %w", string(output), err)
 	}
 
 	return nil
 }
 
-// CheckNginxStatus checks if Nginx is running and accessible
+// CheckNginxStatus checks if the Nginx container is running
 func (m *NginxManager) CheckNginxStatus() error {
 	// Skip actual Nginx operations in test mode
 	if os.Getenv("QUAY_TEST_MODE") == "true" {
-		return fmt.Errorf("Nginx is not running") // Simulate Nginx not running in test mode
+		return fmt.Errorf("nginx is not running") // Simulate Nginx not running in test mode
 	}
 
-	// Check if Nginx is running in a Docker container
 	containerName := os.Getenv("QUAY_NGINX_CONTAINER")
-	if containerName != "" {
-		// Check container status
-		cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("failed to check Nginx container status: %w", err)
-		}
-		if string(output) != "true\n" {
-			return fmt.Errorf("Nginx container is not running")
-		}
-		return nil
+	if containerName == "" {
+		return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable not set")
 	}
 
-	// Check local Nginx process
-	cmd := exec.Command("nginx", "-t")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("Nginx configuration test failed: %s: %w", string(output), err)
+	// Check container status
+	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", containerName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to check Nginx container status: %w", err)
+	}
+	if string(output) != "true\n" {
+		return fmt.Errorf("nginx container is not running")
 	}
 
 	return nil

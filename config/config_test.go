@@ -7,9 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/suite"
-	"gopkg.in/yaml.v3"
 )
 
 type ConfigTestSuite struct {
@@ -159,11 +160,11 @@ projects: []
 
 func (s *ConfigTestSuite) TestEnvVarSubstitution() {
 	// Set up test environment variables
-	os.Setenv("TEST_API_KEY", "secret123")
-	os.Setenv("TEST_DEBUG", "true")
+	_ = os.Setenv("TEST_API_KEY", "secret123")
+	_ = os.Setenv("TEST_DEBUG", "true")
 	defer func() {
-		os.Unsetenv("TEST_API_KEY")
-		os.Unsetenv("TEST_DEBUG")
+		_ = os.Unsetenv("TEST_API_KEY")
+		_ = os.Unsetenv("TEST_DEBUG")
 	}()
 
 	configPath := s.createTestFile("config.yaml", `
@@ -352,8 +353,8 @@ TEST_VAR=from_env
 	s.Contains(msg, "Failed to read config file")
 
 	// Test log level from environment variable
-	os.Setenv("QUAY_LOG_LEVEL", "debug")
-	defer os.Unsetenv("QUAY_LOG_LEVEL")
+	_ = os.Setenv("QUAY_LOG_LEVEL", "debug")
+	defer func() { _ = os.Unsetenv("QUAY_LOG_LEVEL") }()
 
 	InitLogger()
 	s.Equal(logrus.DebugLevel, log.GetLevel())

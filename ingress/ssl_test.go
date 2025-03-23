@@ -23,18 +23,18 @@ func (s *SSLTestSuite) SetupSuite() {
 }
 
 func (s *SSLTestSuite) TearDownSuite() {
-	os.RemoveAll(s.tempDir)
+	_ = os.RemoveAll(s.tempDir)
 }
 
 func (s *SSLTestSuite) TestGenerateSSLCerts() {
 	tests := []struct {
 		name          string
-		config        *IngressConfig
+		config        *Config
 		expectedError bool
 	}{
 		{
 			name: "ssl disabled",
-			config: &IngressConfig{
+			config: &Config{
 				Hostname:   "example.com",
 				SSLEnabled: false,
 			},
@@ -42,7 +42,7 @@ func (s *SSLTestSuite) TestGenerateSSLCerts() {
 		},
 		{
 			name: "ssl enabled",
-			config: &IngressConfig{
+			config: &Config{
 				Hostname:   "secure.example.com",
 				SSLEnabled: true,
 			},
@@ -54,8 +54,8 @@ func (s *SSLTestSuite) TestGenerateSSLCerts() {
 		s.Run(tt.name, func() {
 			// Override the SSL directory for testing
 			sslDir := filepath.Join(s.tempDir, "ssl")
-			os.Setenv("QUAY_SSL_DIR", sslDir)
-			defer os.Unsetenv("QUAY_SSL_DIR")
+			_ = os.Setenv("QUAY_SSL_DIR", sslDir)
+			defer func() { _ = os.Unsetenv("QUAY_SSL_DIR") }()
 
 			err := GenerateSSLCerts(tt.config)
 			if tt.expectedError {

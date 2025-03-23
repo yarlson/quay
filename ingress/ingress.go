@@ -2,11 +2,12 @@ package ingress
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
-// IngressConfig represents the configuration for a single ingress endpoint
-type IngressConfig struct {
+// Config represents the configuration for a single ingress endpoint
+type Config struct {
 	Hostname    string   // The hostname to match
 	Paths       []string // URL path patterns to route
 	Upstream    string   // The address (host:port) of the service to route to
@@ -15,9 +16,9 @@ type IngressConfig struct {
 	SSLKeyPath  string   // Path to the SSL key file
 }
 
-// GenerateNginxConfig generates an Nginx configuration string from a slice of IngressConfig objects.
+// GenerateNginxConfig generates an Nginx configuration string from a slice of Config objects.
 // It creates server blocks for each configuration, including SSL configuration when enabled.
-func GenerateNginxConfig(ingressConfigs []IngressConfig) (string, error) {
+func GenerateNginxConfig(ingressConfigs []Config) (string, error) {
 	if len(ingressConfigs) == 0 {
 		return "", fmt.Errorf("no ingress configurations provided")
 	}
@@ -104,7 +105,7 @@ http {
 // 2. Generates the Nginx configuration
 // 3. Writes the configuration to a file
 // 4. Reloads Nginx to apply the changes
-func RunIngress(configs []IngressConfig, nginxManager *NginxManager) error {
+func RunIngress(configs []Config, nginxManager *NginxManager) error {
 	if len(configs) == 0 {
 		return fmt.Errorf("no ingress configurations provided")
 	}
@@ -125,6 +126,16 @@ func RunIngress(configs []IngressConfig, nginxManager *NginxManager) error {
 	// Write the configuration file
 	if err := nginxManager.WriteConfig(config); err != nil {
 		return fmt.Errorf("failed to write Nginx configuration: %w", err)
+	}
+
+	// In test mode, we don't need to check or manage Nginx
+	if os.Getenv("QUAY_TEST_MODE") == "true" {
+		return nil
+	}
+
+	// Check if Nginx container name is set before attempting any Docker operations
+	if os.Getenv("QUAY_NGINX_CONTAINER") == "" {
+		return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable must be set")
 	}
 
 	// Check if Nginx is running

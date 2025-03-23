@@ -31,7 +31,7 @@ func (s *NginxTestSuite) SetupSuite() {
 }
 
 func (s *NginxTestSuite) TearDownSuite() {
-	os.RemoveAll(s.tempDir)
+	_ = os.RemoveAll(s.tempDir)
 }
 
 func (s *NginxTestSuite) TestWriteConfig() {
@@ -67,26 +67,26 @@ http {
 }
 
 func (s *NginxTestSuite) TestNginxCommands() {
-	// Test Nginx status check
+	// Test Nginx status check without container name
 	err := s.manager.CheckNginxStatus()
-	// We expect an error since Nginx is not running in the test environment
 	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "QUAY_NGINX_CONTAINER environment variable not set")
 
-	// Test Nginx reload
+	// Test Nginx reload without container name
 	err = s.manager.ReloadNginx()
-	// We expect an error since Nginx is not running in the test environment
 	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "QUAY_NGINX_CONTAINER environment variable not set")
 
-	// Test Nginx restart
+	// Test Nginx restart without container name
 	err = s.manager.RestartNginx()
-	// We expect an error since Nginx is not running in the test environment
 	assert.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "QUAY_NGINX_CONTAINER environment variable not set")
 }
 
 func (s *NginxTestSuite) TestDockerContainerMode() {
 	// Test with a mock Docker container
-	os.Setenv("QUAY_NGINX_CONTAINER", "test-nginx")
-	defer os.Unsetenv("QUAY_NGINX_CONTAINER")
+	_ = os.Setenv("QUAY_NGINX_CONTAINER", "test-nginx")
+	defer func() { _ = os.Unsetenv("QUAY_NGINX_CONTAINER") }()
 
 	// Test Nginx status check in Docker mode
 	err := s.manager.CheckNginxStatus()

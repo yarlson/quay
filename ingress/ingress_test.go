@@ -15,13 +15,13 @@ type IngressTestSuite struct {
 func (s *IngressTestSuite) TestGenerateNginxConfig() {
 	tests := []struct {
 		name           string
-		configs        []IngressConfig
+		configs        []Config
 		expectedError  bool
 		expectedConfig string
 	}{
 		{
 			name: "single http server",
-			configs: []IngressConfig{
+			configs: []Config{
 				{
 					Hostname: "example.com",
 					Paths:    []string{"/"},
@@ -65,7 +65,7 @@ http {
 		},
 		{
 			name: "single https server",
-			configs: []IngressConfig{
+			configs: []Config{
 				{
 					Hostname:    "secure.example.com",
 					Paths:       []string{"/"},
@@ -116,7 +116,7 @@ http {
 		},
 		{
 			name: "multiple paths",
-			configs: []IngressConfig{
+			configs: []Config{
 				{
 					Hostname: "api.example.com",
 					Paths:    []string{"/v1", "/v2"},
@@ -168,12 +168,12 @@ http {
 		},
 		{
 			name:          "empty configs",
-			configs:       []IngressConfig{},
+			configs:       []Config{},
 			expectedError: true,
 		},
 		{
 			name: "ssl enabled without cert paths",
-			configs: []IngressConfig{
+			configs: []Config{
 				{
 					Hostname:   "invalid.example.com",
 					Paths:      []string{"/"},

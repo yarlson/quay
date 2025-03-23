@@ -24,7 +24,7 @@ func (s *ComposeTestSuite) SetupSuite() {
 }
 
 func (s *ComposeTestSuite) TearDownSuite() {
-	os.RemoveAll(s.tempDir)
+	_ = os.RemoveAll(s.tempDir)
 }
 
 func (s *ComposeTestSuite) createTestComposeFile(content string) string {

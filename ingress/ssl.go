@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 )
 
-// GenerateSSLCerts generates SSL certificates for the given IngressConfig using mkcert.
-// It updates the IngressConfig with the paths to the generated certificate and key files.
-func GenerateSSLCerts(config *IngressConfig) error {
+// GenerateSSLCerts generates SSL certificates for the given Config using mkcert.
+// It updates the Config with the paths to the generated certificate and key files.
+func GenerateSSLCerts(config *Config) error {
 	if !config.SSLEnabled {
 		return nil
 	}
@@ -46,7 +46,7 @@ func GenerateSSLCerts(config *IngressConfig) error {
 		return fmt.Errorf("failed to generate SSL certificate: %s: %w", string(output), err)
 	}
 
-	// Update the IngressConfig with the certificate paths
+	// Update the Config with the certificate paths
 	config.SSLCertPath = certPath
 	config.SSLKeyPath = keyPath
 

@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,10 +9,11 @@ import (
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/compose-spec/compose-go/loader"
 	"github.com/compose-spec/compose-go/types"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v3"
 )
 
 // PortMapping represents a port mapping override for a service.
@@ -48,7 +50,7 @@ func LoadComposeFile(path string) (*types.Project, error) {
 	workingDir := filepath.Dir(absPath)
 
 	// Load the compose file
-	config, err := loader.Load(types.ConfigDetails{
+	config, err := loader.LoadWithContext(context.Background(), types.ConfigDetails{
 		WorkingDir: workingDir,
 		ConfigFiles: []types.ConfigFile{
 			{
@@ -128,13 +130,13 @@ type ServiceConfig struct {
 	Volumes     []string          `yaml:"volumes,omitempty"`
 }
 
-// ComposeConfig represents the root YAML configuration
-type ComposeConfig struct {
+// Config represents the root YAML configuration
+type Config struct {
 	Services map[string]ServiceConfig `yaml:"services"`
 }
 
 func GenerateYAML(project *types.Project) (string, error) {
-	config := ComposeConfig{
+	config := Config{
 		Services: make(map[string]ServiceConfig),
 	}
 
@@ -231,7 +233,7 @@ func (e *DefaultCommandExecutor) Run(cmd *exec.Cmd) error {
 
 // ExecuteCommand executes a Docker Compose command with the provided project configuration.
 // The modified YAML configuration is piped directly to the docker-compose command's stdin.
-func ExecuteCommand(project *types.Project, opts ExecuteOptions, executor CommandExecutor) error {
+func ExecuteCommand(project *types.Project, opts ExecuteOptions) error {
 	logger := logrus.WithFields(logrus.Fields{
 		"project": project.Name,
 		"command": opts.Command,
@@ -355,7 +357,7 @@ func RunComposeOperation(composeFile string, mappings []PortMapping, cmdArgs []s
 		Detach:     detach,
 	}
 
-	if err := ExecuteCommand(project, opts, &DefaultCommandExecutor{}); err != nil {
+	if err := ExecuteCommand(project, opts); err != nil {
 		return fmt.Errorf("failed to execute docker-compose command: %w", err)
 	}
 

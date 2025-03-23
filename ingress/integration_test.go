@@ -16,7 +16,7 @@ type IntegrationTestSuite struct {
 	configDir    string
 	sslDir       string
 	nginxManager *NginxManager
-	configs      []IngressConfig
+	configs      []Config
 }
 
 func (s *IntegrationTestSuite) SetupSuite() {
@@ -29,14 +29,15 @@ func (s *IntegrationTestSuite) SetupSuite() {
 	s.sslDir = filepath.Join(s.tempDir, "ssl")
 
 	// Set environment variables for test mode
-	os.Setenv("QUAY_TEST_MODE", "true")
-	os.Setenv("QUAY_SSL_DIR", s.sslDir)
+	_ = os.Setenv("QUAY_TEST_MODE", "true")
+	_ = os.Setenv("QUAY_SSL_DIR", s.sslDir)
+	_ = os.Setenv("QUAY_NGINX_CONTAINER", "test-nginx")
 
 	// Create Nginx manager
 	s.nginxManager = NewNginxManager(s.configDir, "nginx.conf")
 
 	// Create test configurations
-	s.configs = []IngressConfig{
+	s.configs = []Config{
 		{
 			Hostname: "example.com",
 			Paths:    []string{"/"},
@@ -55,9 +56,10 @@ func (s *IntegrationTestSuite) SetupSuite() {
 
 func (s *IntegrationTestSuite) TearDownSuite() {
 	// Clean up temporary directories
-	os.RemoveAll(s.tempDir)
-	os.Unsetenv("QUAY_TEST_MODE")
-	os.Unsetenv("QUAY_SSL_DIR")
+	_ = os.RemoveAll(s.tempDir)
+	_ = os.Unsetenv("QUAY_TEST_MODE")
+	_ = os.Unsetenv("QUAY_SSL_DIR")
+	_ = os.Unsetenv("QUAY_NGINX_CONTAINER")
 }
 
 func (s *IntegrationTestSuite) TestEndToEndIngressSetup() {
@@ -83,7 +85,7 @@ func (s *IntegrationTestSuite) TestEndToEndIngressSetup() {
 
 func (s *IntegrationTestSuite) TestErrorHandling() {
 	// Test with invalid SSL configuration
-	invalidConfigs := []IngressConfig{
+	invalidConfigs := []Config{
 		{
 			Hostname:   "invalid.example.com",
 			Paths:      []string{"/"},
@@ -99,9 +101,20 @@ func (s *IntegrationTestSuite) TestErrorHandling() {
 	assert.Contains(s.T(), err.Error(), "SSL certificate paths not set")
 
 	// Test with empty configurations
-	err = RunIngress([]IngressConfig{}, s.nginxManager)
+	err = RunIngress([]Config{}, s.nginxManager)
 	require.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "no ingress configurations provided")
+
+	// Test without container name in non-test mode
+	_ = os.Unsetenv("QUAY_TEST_MODE")
+	_ = os.Unsetenv("QUAY_NGINX_CONTAINER")
+	err = RunIngress(s.configs, s.nginxManager)
+	require.Error(s.T(), err)
+	assert.Contains(s.T(), err.Error(), "QUAY_NGINX_CONTAINER environment variable must be set")
+
+	// Restore test environment
+	_ = os.Setenv("QUAY_TEST_MODE", "true")
+	_ = os.Setenv("QUAY_NGINX_CONTAINER", "test-nginx")
 }
 
 func TestIntegrationSuite(t *testing.T) {
