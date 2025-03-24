@@ -182,7 +182,7 @@ http {
 // 2. Generates the Nginx configuration
 // 3. Writes the configuration to a file
 // 4. Reloads Nginx to apply the changes
-func RunIngress(configs []Config, nginxManager *NginxManager) error {
+func RunIngress(configs []Config, projectDir string) error {
 	logger := logrus.WithFields(logrus.Fields{
 		"function": "RunIngress",
 		"configs":  len(configs),
@@ -201,7 +201,7 @@ func RunIngress(configs []Config, nginxManager *NginxManager) error {
 			"hostname": configs[i].Hostname,
 		}).Debug("Generating SSL certificates")
 
-		if err := GenerateSSLCerts(&configs[i]); err != nil {
+		if err := GenerateSSLCerts(&configs[i], projectDir); err != nil {
 			logger.WithFields(logrus.Fields{
 				"hostname": configs[i].Hostname,
 				"error":    err,
@@ -216,6 +216,13 @@ func RunIngress(configs []Config, nginxManager *NginxManager) error {
 	if err != nil {
 		logger.WithError(err).Error("Failed to generate Nginx configuration")
 		return fmt.Errorf("failed to generate Nginx configuration: %w", err)
+	}
+
+	// Create Nginx manager
+	nginxManager, err := NewNginxManager(projectDir)
+	if err != nil {
+		logger.WithError(err).Error("Failed to create Nginx manager")
+		return fmt.Errorf("failed to create Nginx manager: %w", err)
 	}
 
 	// Write the configuration file

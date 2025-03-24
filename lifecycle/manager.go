@@ -268,11 +268,11 @@ func (m *Manager) cleanupProject(project *config.Project) error {
 
 	// Clean up ingress configuration if enabled
 	if project.Ingress != nil && project.Ingress.Enabled {
-		nginxConfigDir := os.Getenv("NGINX_CONFIG_DIR")
-		if nginxConfigDir == "" {
-			nginxConfigDir = "/etc/nginx/conf.d"
+		nginxManager, err := ingress.NewNginxManager(project.Path)
+		if err != nil {
+			logger.WithError(err).Error("Failed to create Nginx manager")
+			return fmt.Errorf("failed to create Nginx manager: %w", err)
 		}
-		nginxManager := ingress.NewNginxManager(nginxConfigDir, "quay.conf")
 		if err := nginxManager.WriteConfig(""); err != nil {
 			logger.WithError(err).Error("Failed to clean up ingress configuration")
 			return fmt.Errorf("failed to clean up ingress configuration: %w", err)

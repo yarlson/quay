@@ -7,10 +7,12 @@ import (
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
+	"github.com/yarlson/quay/cache"
 )
 
 const (
 	nginxContainerName = "nginx"
+	nginxConfigFile    = "quay.conf"
 )
 
 // NginxManager handles Nginx process management and configuration in a Docker container
@@ -20,11 +22,17 @@ type NginxManager struct {
 }
 
 // NewNginxManager creates a new NginxManager instance
-func NewNginxManager(configDir, configFile string) *NginxManager {
-	return &NginxManager{
-		ConfigDir:  configDir,
-		ConfigFile: configFile,
+func NewNginxManager(projectDir string) (*NginxManager, error) {
+	// Get Nginx directory from cache
+	nginxDir, err := cache.GetNginxDir(projectDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Nginx directory: %w", err)
 	}
+
+	return &NginxManager{
+		ConfigDir:  nginxDir,
+		ConfigFile: nginxConfigFile,
+	}, nil
 }
 
 // WriteConfig writes the provided Nginx configuration to a file
@@ -32,12 +40,6 @@ func (m *NginxManager) WriteConfig(config string) error {
 	logger := logrus.WithFields(logrus.Fields{
 		"function": "WriteConfig",
 	})
-
-	logger.Debug("Creating config directory if it doesn't exist")
-	if err := os.MkdirAll(m.ConfigDir, 0755); err != nil {
-		logger.WithError(err).Error("Failed to create config directory")
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
 
 	// Write the configuration file
 	configPath := filepath.Join(m.ConfigDir, m.ConfigFile)

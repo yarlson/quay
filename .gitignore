@@ -25,3 +25,6 @@ go.work.sum
 # env file
 .env
 repomix-output.txt
+
+# Quay cache directory
+.quay/cache/

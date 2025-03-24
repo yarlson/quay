@@ -2,16 +2,16 @@ package ingress
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 
 	"github.com/sirupsen/logrus"
+	"github.com/yarlson/quay/cache"
 )
 
 // GenerateSSLCerts generates SSL certificates for the given Config using mkcert.
 // It updates the Config with the paths to the generated certificate and key files.
-func GenerateSSLCerts(config *Config) error {
+func GenerateSSLCerts(config *Config, projectDir string) error {
 	logger := logrus.WithFields(logrus.Fields{
 		"function": "GenerateSSLCerts",
 		"hostname": config.Hostname,
@@ -22,14 +22,14 @@ func GenerateSSLCerts(config *Config) error {
 		return nil
 	}
 
-	sslDir := "/etc/nginx/ssl"
-	logger.Debugf("Using SSL directory: %s", sslDir)
-
-	// Create SSL directory if it doesn't exist
-	if err := os.MkdirAll(sslDir, 0755); err != nil {
-		logger.WithError(err).Error("Failed to create SSL directory")
-		return fmt.Errorf("failed to create SSL directory: %w", err)
+	// Get SSL directory from cache
+	sslDir, err := cache.GetSSLDir(projectDir)
+	if err != nil {
+		logger.WithError(err).Error("Failed to get SSL directory")
+		return fmt.Errorf("failed to get SSL directory: %w", err)
 	}
+
+	logger.Debugf("Using SSL directory: %s", sslDir)
 
 	// Generate paths for certificate and key files
 	certPath := filepath.Join(sslDir, config.Hostname+".crt")
