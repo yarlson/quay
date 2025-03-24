@@ -46,7 +46,7 @@ services:
       - "80:80"
 `
 	path := s.createTestComposeFile(validContent)
-	project, err := LoadComposeFile(path)
+	project, err := loadComposeFile(path)
 	require.NoError(s.T(), err)
 	assert.NotNil(s.T(), project)
 	assert.Equal(s.T(), 1, len(project.Services))
@@ -54,14 +54,14 @@ services:
 	assert.Equal(s.T(), "nginx:latest", project.Services[0].Image)
 
 	// Test non-existent file
-	_, err = LoadComposeFile("nonexistent.yml")
+	_, err = loadComposeFile("nonexistent.yml")
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "compose file not found")
 
 	// Test invalid compose file
 	invalidContent := `invalid: yaml: content`
 	path = s.createTestComposeFile(invalidContent)
-	_, err = LoadComposeFile(path)
+	_, err = loadComposeFile(path)
 	assert.Error(s.T(), err)
 }
 
@@ -90,7 +90,7 @@ func (s *ComposeTestSuite) TestApplyPortMappings() {
 			Container: "80",
 		},
 	}
-	err := ApplyPortMappings(project, mappings)
+	err := applyPortMappings(project, mappings)
 	require.NoError(s.T(), err)
 	assert.Equal(s.T(), "8080", project.Services[0].Ports[0].Published)
 
@@ -102,7 +102,7 @@ func (s *ComposeTestSuite) TestApplyPortMappings() {
 			Container: "80",
 		},
 	}
-	err = ApplyPortMappings(project, mappings)
+	err = applyPortMappings(project, mappings)
 	assert.Error(s.T(), err)
 	assert.Contains(s.T(), err.Error(), "service nonexistent not found")
 }
@@ -127,7 +127,7 @@ func (s *ComposeTestSuite) TestGenerateYAML() {
 		},
 	}
 
-	yaml, err := GenerateYAML(project)
+	yaml, err := generateYAML(project)
 	require.NoError(s.T(), err)
 	assert.Contains(s.T(), yaml, "image: nginx:latest")
 	assert.Contains(s.T(), yaml, "ports:")
@@ -170,127 +170,6 @@ func strPtr(s string) *string {
 	return &s
 }
 
-func (s *ComposeTestSuite) TestValidation() {
-	tests := []struct {
-		name        string
-		project     *types.Project
-		expectError string
-	}{
-		{
-			name: "valid project",
-			project: &types.Project{
-				Name: "test-project",
-				Services: []types.ServiceConfig{
-					{
-						Name:  "web",
-						Image: "nginx:latest",
-						Ports: []types.ServicePortConfig{
-							{
-								Mode:      "host",
-								Target:    80,
-								Published: "80",
-							},
-						},
-					},
-				},
-			},
-			expectError: "",
-		},
-		{
-			name: "missing project name",
-			project: &types.Project{
-				Services: []types.ServiceConfig{
-					{
-						Name:  "web",
-						Image: "nginx:latest",
-					},
-				},
-			},
-			expectError: "project name is required",
-		},
-		{
-			name: "no services",
-			project: &types.Project{
-				Name:     "test-project",
-				Services: []types.ServiceConfig{},
-			},
-			expectError: "project must contain at least one service",
-		},
-		{
-			name: "missing service name",
-			project: &types.Project{
-				Name: "test-project",
-				Services: []types.ServiceConfig{
-					{
-						Image: "nginx:latest",
-					},
-				},
-			},
-			expectError: "service name is required",
-		},
-		{
-			name: "missing service image",
-			project: &types.Project{
-				Name: "test-project",
-				Services: []types.ServiceConfig{
-					{
-						Name: "web",
-					},
-				},
-			},
-			expectError: "image is required for service web",
-		},
-		{
-			name: "invalid port mapping",
-			project: &types.Project{
-				Name: "test-project",
-				Services: []types.ServiceConfig{
-					{
-						Name:  "web",
-						Image: "nginx:latest",
-						Ports: []types.ServicePortConfig{
-							{
-								Mode: "host",
-							},
-						},
-					},
-				},
-			},
-			expectError: "container port is required for service web port mapping 0",
-		},
-		{
-			name: "invalid volume mapping",
-			project: &types.Project{
-				Name: "test-project",
-				Services: []types.ServiceConfig{
-					{
-						Name:  "web",
-						Image: "nginx:latest",
-						Volumes: []types.ServiceVolumeConfig{
-							{
-								Source: "/data",
-							},
-						},
-					},
-				},
-			},
-			expectError: "volume target is required for service web volume 0",
-		},
-	}
-
-	for _, tt := range tests {
-		s.Run(tt.name, func() {
-			err := ValidateProject(tt.project)
-			if tt.expectError != "" {
-				s.Error(err)
-				s.Contains(err.Error(), tt.expectError)
-			} else {
-				s.NoError(err)
-			}
-		})
-	}
-}
-
 func (s *ComposeTestSuite) TestEnvVarSubstitution() {
 	// Set up test environment variables
 	err := os.Setenv("TEST_API_KEY", "secret123")
@@ -326,7 +205,7 @@ services:
 	path := s.createTestComposeFile(content)
 
 	// Load the compose file
-	project, err := LoadComposeFile(path)
+	project, err := loadComposeFile(path)
 	s.Require().NoError(err)
 	s.NotNil(project)
 
@@ -348,7 +227,7 @@ services:
       INVALID: ${TEST_API_KEY
 `
 	path = s.createTestComposeFile(invalidContent)
-	_, err = LoadComposeFile(path)
+	_, err = loadComposeFile(path)
 	s.Error(err)
 	s.Contains(err.Error(), "invalid interpolation format")
 }

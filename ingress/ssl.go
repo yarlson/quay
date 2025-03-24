@@ -14,11 +14,7 @@ func GenerateSSLCerts(config *Config) error {
 		return nil
 	}
 
-	// Get SSL directory from environment variable or use default
-	sslDir := os.Getenv("QUAY_SSL_DIR")
-	if sslDir == "" {
-		sslDir = "/etc/nginx/ssl"
-	}
+	sslDir := "/etc/nginx/ssl"
 
 	// Create SSL directory if it doesn't exist
 	if err := os.MkdirAll(sslDir, 0755); err != nil {
@@ -28,12 +24,6 @@ func GenerateSSLCerts(config *Config) error {
 	// Generate paths for certificate and key files
 	certPath := filepath.Join(sslDir, config.Hostname+".crt")
 	keyPath := filepath.Join(sslDir, config.Hostname+".key")
-
-	// Skip actual certificate generation in test mode
-	if os.Getenv("QUAY_TEST_MODE") == "true" {
-		// In test mode, don't set paths at all
-		return nil
-	}
 
 	// Check if mkcert is available
 	if _, err := exec.LookPath("mkcert"); err != nil {

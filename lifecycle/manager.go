@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/yarlson/quay/compose"
 	"github.com/yarlson/quay/config"
@@ -102,24 +101,6 @@ func (m *Manager) handleRemoteProject(project *config.Project) error {
 	// Create project directory if it doesn't exist
 	if err := os.MkdirAll(project.Path, 0755); err != nil {
 		return fmt.Errorf("failed to create project directory: %w", err)
-	}
-
-	// Skip git operations in test mode
-	if os.Getenv("QUAY_TEST_MODE") == "true" {
-		// Create a dummy compose file for testing
-		composeContent := `
-version: '3'
-services:
-  api:
-    image: nginx:latest
-    ports:
-      - "3000:3000"
-`
-		err := os.WriteFile(filepath.Join(project.Path, "docker-compose.yml"), []byte(composeContent), 0644)
-		if err != nil {
-			return fmt.Errorf("failed to create test compose file: %w", err)
-		}
-		return nil
 	}
 
 	// Check if the directory is empty

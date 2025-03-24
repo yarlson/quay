@@ -2,7 +2,6 @@ package ingress
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -191,16 +190,6 @@ func RunIngress(configs []Config, nginxManager *NginxManager) error {
 	// Write the configuration file
 	if err := nginxManager.WriteConfig(config); err != nil {
 		return fmt.Errorf("failed to write Nginx configuration: %w", err)
-	}
-
-	// In test mode, we don't need to check or manage Nginx
-	if os.Getenv("QUAY_TEST_MODE") == "true" {
-		return nil
-	}
-
-	// Check if Nginx container name is set before attempting any Docker operations
-	if os.Getenv("QUAY_NGINX_CONTAINER") == "" {
-		return fmt.Errorf("QUAY_NGINX_CONTAINER environment variable must be set")
 	}
 
 	// Check if Nginx is running
