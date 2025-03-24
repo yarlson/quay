@@ -3,6 +3,8 @@ package ingress
 import (
 	"fmt"
 	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Config represents the configuration for a single ingress endpoint
@@ -30,7 +32,13 @@ type RateLimit struct {
 // GenerateNginxConfig generates an Nginx configuration string from a slice of Config objects.
 // It creates server blocks for each configuration, including SSL configuration when enabled.
 func GenerateNginxConfig(ingressConfigs []Config) (string, error) {
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "GenerateNginxConfig",
+		"configs":  len(ingressConfigs),
+	})
+
 	if len(ingressConfigs) == 0 {
+		logger.Error("no ingress configurations provided")
 		return "", fmt.Errorf("no ingress configurations provided")
 	}
 
@@ -38,11 +46,15 @@ func GenerateNginxConfig(ingressConfigs []Config) (string, error) {
 	for _, ing := range ingressConfigs {
 		if ing.SSLEnabled {
 			if ing.SSLCertPath == "" || ing.SSLKeyPath == "" {
+				logger.WithFields(logrus.Fields{
+					"hostname": ing.Hostname,
+				}).Error("SSL certificate paths not set")
 				return "", fmt.Errorf("SSL certificate paths not set for hostname %s", ing.Hostname)
 			}
 		}
 	}
 
+	logger.Debug("Starting Nginx configuration generation")
 	var config strings.Builder
 
 	// Write the main Nginx configuration header
@@ -161,6 +173,7 @@ http {
 	// Close the http block without adding a newline
 	config.WriteString("}")
 
+	logger.Info("Successfully generated Nginx configuration")
 	return config.String(), nil
 }
 
@@ -170,40 +183,68 @@ http {
 // 3. Writes the configuration to a file
 // 4. Reloads Nginx to apply the changes
 func RunIngress(configs []Config, nginxManager *NginxManager) error {
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "RunIngress",
+		"configs":  len(configs),
+	})
+
 	if len(configs) == 0 {
+		logger.Error("no ingress configurations provided")
 		return fmt.Errorf("no ingress configurations provided")
 	}
 
+	logger.Debug("Starting ingress setup process")
+
 	// Generate SSL certificates for configurations that require them
 	for i := range configs {
+		logger.WithFields(logrus.Fields{
+			"hostname": configs[i].Hostname,
+		}).Debug("Generating SSL certificates")
+
 		if err := GenerateSSLCerts(&configs[i]); err != nil {
+			logger.WithFields(logrus.Fields{
+				"hostname": configs[i].Hostname,
+				"error":    err,
+			}).Error("Failed to generate SSL certificates")
 			return fmt.Errorf("failed to generate SSL certificates for %s: %w", configs[i].Hostname, err)
 		}
 	}
 
 	// Generate Nginx configuration
+	logger.Debug("Generating Nginx configuration")
 	config, err := GenerateNginxConfig(configs)
 	if err != nil {
+		logger.WithError(err).Error("Failed to generate Nginx configuration")
 		return fmt.Errorf("failed to generate Nginx configuration: %w", err)
 	}
 
 	// Write the configuration file
+	logger.Debug("Writing Nginx configuration")
 	if err := nginxManager.WriteConfig(config); err != nil {
+		logger.WithError(err).Error("Failed to write Nginx configuration")
 		return fmt.Errorf("failed to write Nginx configuration: %w", err)
 	}
 
 	// Check if Nginx is running
+	logger.Debug("Checking Nginx status")
 	if err := nginxManager.CheckNginxStatus(); err != nil {
 		// If Nginx is not running, try to restart it
+		logger.Info("Nginx not running, attempting to start")
 		if err := nginxManager.RestartNginx(); err != nil {
+			logger.WithError(err).Error("Failed to start Nginx")
 			return fmt.Errorf("failed to start Nginx: %w", err)
 		}
+		logger.Info("Successfully started Nginx")
 	} else {
 		// If Nginx is running, reload the configuration
+		logger.Info("Reloading Nginx configuration")
 		if err := nginxManager.ReloadNginx(); err != nil {
+			logger.WithError(err).Error("Failed to reload Nginx")
 			return fmt.Errorf("failed to reload Nginx: %w", err)
 		}
+		logger.Info("Successfully reloaded Nginx")
 	}
 
+	logger.Info("Successfully completed ingress setup")
 	return nil
 }

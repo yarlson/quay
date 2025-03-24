@@ -1,8 +1,6 @@
 package config
 
 import (
-	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,9 +13,7 @@ import (
 
 type ConfigTestSuite struct {
 	suite.Suite
-	tmpDir     string
-	logBuffer  *bytes.Buffer
-	origLogger *logrus.Logger
+	tmpDir string
 }
 
 func (s *ConfigTestSuite) SetupTest() {
@@ -25,18 +21,9 @@ func (s *ConfigTestSuite) SetupTest() {
 	s.tmpDir = s.T().TempDir()
 
 	// Save original logger and create a new one for tests
-	s.origLogger = log
-	s.logBuffer = new(bytes.Buffer)
 	testLogger := logrus.New()
-	testLogger.SetOutput(s.logBuffer)
 	testLogger.SetFormatter(&logrus.JSONFormatter{})
 	testLogger.SetLevel(logrus.DebugLevel)
-	log = testLogger
-}
-
-func (s *ConfigTestSuite) TearDownTest() {
-	// Restore original logger
-	log = s.origLogger
 }
 
 func (s *ConfigTestSuite) createTestFile(name string, content string) string {
@@ -44,20 +31,6 @@ func (s *ConfigTestSuite) createTestFile(name string, content string) string {
 	err := os.WriteFile(path, []byte(content), 0644)
 	s.Require().NoError(err)
 	return path
-}
-
-func (s *ConfigTestSuite) getLogEntries() []map[string]interface{} {
-	var entries []map[string]interface{}
-	for _, line := range bytes.Split(s.logBuffer.Bytes(), []byte("\n")) {
-		if len(line) == 0 {
-			continue
-		}
-		var entry map[string]interface{}
-		err := json.Unmarshal(line, &entry)
-		s.Require().NoError(err)
-		entries = append(entries, entry)
-	}
-	return entries
 }
 
 func (s *ConfigTestSuite) TestConfigStructs() {
@@ -270,94 +243,6 @@ projects:
 	config, err = LoadConfig(absConfigPath)
 	s.Require().NoError(err)
 	s.Equal("absolute", config.Projects[0].Env["TEST_VAR"], "Should handle absolute paths")
-}
-
-func (s *ConfigTestSuite) TestLogging() {
-	configPath := s.createTestFile("config.yaml", `
-projects:
-  - name: test-project
-    path: `+s.tmpDir+`
-    compose_file: docker-compose.yml
-    env_file: .env
-    env:
-      TEST_VAR: "${TEST_VAR:-default}"
-`)
-
-	s.createTestFile(".env", `
-TEST_VAR=from_env
-`)
-
-	// Clear log buffer
-	s.logBuffer.Reset()
-
-	config, err := LoadConfig(configPath)
-	s.Require().NoError(err)
-	s.NotNil(config)
-
-	// Get log entries
-	entries := s.getLogEntries()
-	s.Greater(len(entries), 0, "Should have log entries")
-
-	// Check for specific log entries
-	foundInfo := false
-	foundDebug := false
-	foundError := false
-
-	for _, entry := range entries {
-		level, ok := entry["level"].(string)
-		s.True(ok, "Log entry should have a level")
-
-		switch level {
-		case "info":
-			foundInfo = true
-			msg, ok := entry["msg"].(string)
-			s.True(ok)
-			if msg == "Loading configuration file" {
-				s.Contains(entry, "file", "Info log should have file field")
-			}
-		case "debug":
-			foundDebug = true
-			msg, ok := entry["msg"].(string)
-			s.True(ok)
-			if msg == "Substituting environment variables" {
-				s.Contains(entry, "value", "Debug log should have value field")
-			}
-		case "error":
-			foundError = true
-		}
-	}
-
-	s.True(foundInfo, "Should have info level logs")
-	s.True(foundDebug, "Should have debug level logs")
-	s.False(foundError, "Should not have error level logs")
-
-	// Test error logging
-	log.SetLevel(logrus.ErrorLevel)
-	s.logBuffer.Reset()
-
-	// Try to load a non-existent file
-	_, err = LoadConfig("/non/existent/file.yaml")
-	s.Error(err)
-
-	// Verify error log entry
-	entries = s.getLogEntries()
-	s.Require().NotEmpty(entries)
-	errorEntry := entries[0]
-
-	level, ok := errorEntry["level"].(string)
-	s.True(ok)
-	s.Equal("error", level)
-
-	msg, ok := errorEntry["msg"].(string)
-	s.True(ok)
-	s.Contains(msg, "Failed to read config file")
-
-	// Test log level from environment variable
-	_ = os.Setenv("QUAY_LOG_LEVEL", "debug")
-	defer func() { _ = os.Unsetenv("QUAY_LOG_LEVEL") }()
-
-	InitLogger()
-	s.Equal(logrus.DebugLevel, log.GetLevel())
 }
 
 func (s *ConfigTestSuite) TestValidation() {

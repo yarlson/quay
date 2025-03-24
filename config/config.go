@@ -12,32 +12,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var log = logrus.New()
-
-// InitLogger initializes the logger with default settings
-func InitLogger() {
-	// Set default log level from environment variable or default to info
-	logLevel := os.Getenv("QUAY_LOG_LEVEL")
-	if logLevel == "" {
-		logLevel = "info"
-	}
-
-	level, err := logrus.ParseLevel(logLevel)
-	if err != nil {
-		level = logrus.InfoLevel
-	}
-	log.SetLevel(level)
-
-	// Set output format to JSON for better parsing
-	log.SetFormatter(&logrus.JSONFormatter{})
-}
-
-// Config represents the root configuration structure
+// Config represents the root configuration structure.
 type Config struct {
 	Projects []Project `yaml:"projects"`
 }
 
-// Project represents a single project configuration
+// Project represents a single project configuration.
 type Project struct {
 	Name        string            `yaml:"name"`
 	Path        string            `yaml:"path"`
@@ -50,14 +30,14 @@ type Project struct {
 	Remote      *Remote           `yaml:"remote,omitempty"`
 }
 
-// PortMapping represents a port mapping between host and container
+// PortMapping represents a port mapping between host and container.
 type PortMapping struct {
 	Service   string `yaml:"service"`
 	Host      string `yaml:"host"`
 	Container string `yaml:"container"`
 }
 
-// Ingress represents ingress configuration for a project
+// Ingress represents ingress configuration for a project.
 type Ingress struct {
 	Enabled  bool     `yaml:"enabled"`
 	Hostname string   `yaml:"hostname"`
@@ -65,12 +45,12 @@ type Ingress struct {
 	SSL      *SSL     `yaml:"ssl,omitempty"`
 }
 
-// SSL represents SSL configuration for ingress
+// SSL represents SSL configuration for ingress.
 type SSL struct {
 	Provider string `yaml:"provider"`
 }
 
-// Remote represents remote repository configuration
+// Remote represents remote repository configuration.
 type Remote struct {
 	Repo   string `yaml:"repo"`
 	Branch string `yaml:"branch"`
@@ -79,87 +59,85 @@ type Remote struct {
 // substituteEnvVars performs environment variable substitution on a string
 // using the ${VAR:-default} syntax. If VAR is not set, default is used.
 func substituteEnvVars(value string) (string, error) {
-	log.WithField("value", value).Debug("Substituting environment variables")
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "substituteEnvVars",
+		"value":    value,
+	})
+	logger.Debug("Substituting environment variables")
+
 	result, err := envsubst.String(value)
 	if err != nil {
-		log.WithError(err).WithField("value", value).Error("Failed to substitute environment variables")
+		logger.WithError(err).Error("Failed to substitute environment variables")
 		return "", err
 	}
-	log.WithFields(logrus.Fields{
-		"original": value,
-		"result":   result,
-	}).Debug("Environment variable substitution completed")
+
+	logger.Debug("Environment variable substitution completed")
 	return result, nil
 }
 
-// processEnvVars performs environment variable substitution on all environment
-// variables in the project configuration.
+// processEnvVars performs environment variable substitution on all environment variables.
 func (p *Project) processEnvVars() error {
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "processEnvVars",
+		"project":  p.Name,
+	})
 	if p.Env == nil {
-		log.WithField("project", p.Name).Debug("No environment variables to process")
+		logger.Debug("No environment variables to process")
 		return nil
 	}
 
-	log.WithFields(logrus.Fields{
-		"project": p.Name,
-		"count":   len(p.Env),
-	}).Debug("Processing environment variables")
-
-	// Create a new map to store processed values
+	logger.Debug("Processing environment variables")
 	processedEnv := make(map[string]string, len(p.Env))
 
 	// Process each environment variable
 	for key, value := range p.Env {
 		processed, err := substituteEnvVars(value)
 		if err != nil {
-			log.WithError(err).WithFields(logrus.Fields{
-				"project": p.Name,
-				"key":     key,
-			}).Error("Failed to substitute environment variables")
-			return fmt.Errorf("failed to substitute environment variables for key %q: %w", key, err)
+			logger.WithError(err).Error("Failed to substitute environment variable")
+			return fmt.Errorf("failed to substitute environment variable for key %q: %w", key, err)
 		}
 		processedEnv[key] = processed
 	}
 
 	// Replace the original map with processed values
 	p.Env = processedEnv
-	log.WithField("project", p.Name).Debug("Environment variable processing completed")
+	logger.Debug("Environment variable processing completed")
 	return nil
 }
 
 // loadEnvFile reads and parses a .env file into a map of environment variables.
 // It returns an error if the file cannot be read or if the format is invalid.
 func loadEnvFile(filePath string) (map[string]string, error) {
-	log.WithField("file", filePath).Debug("Loading .env file")
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "loadEnvFile",
+		"file":     filePath,
+	})
+	logger.Debug("Loading .env file")
 
 	// Read the .env file
 	envMap, err := godotenv.Read(filePath)
 	if err != nil {
-		log.WithError(err).WithField("file", filePath).Error("Failed to read .env file")
+		logger.WithError(err).Error("Failed to read .env file")
 		return nil, fmt.Errorf("failed to read .env file %s: %w", filePath, err)
 	}
 
-	log.WithFields(logrus.Fields{
-		"file":  filePath,
-		"count": len(envMap),
-	}).Debug("Successfully loaded .env file")
+	logger.Debug("Successfully loaded .env file")
 	return envMap, nil
 }
 
-// processEnvFile loads and merges environment variables from the specified .env file
-// with the project's existing environment variables.
+// processEnvFile loads and merges environment variables from the specified .env file.
 func (p *Project) processEnvFile() error {
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "processEnvFile",
+		"project":  p.Name,
+	})
+
 	if p.EnvFile == "" {
-		log.WithField("project", p.Name).Debug("No .env file specified")
+		logger.Debug("No .env file specified")
 		return nil
 	}
 
-	log.WithFields(logrus.Fields{
-		"project": p.Name,
-		"envFile": p.EnvFile,
-	}).Debug("Processing .env file")
-
-	// Resolve the .env file path relative to the project path
+	logger.Debug("Processing .env file")
 	envFilePath := p.EnvFile
 	if !filepath.IsAbs(envFilePath) && p.Path != "" {
 		envFilePath = filepath.Join(p.Path, envFilePath)
@@ -168,10 +146,7 @@ func (p *Project) processEnvFile() error {
 	// Load environment variables from the .env file
 	envMap, err := loadEnvFile(envFilePath)
 	if err != nil {
-		log.WithError(err).WithFields(logrus.Fields{
-			"project": p.Name,
-			"file":    envFilePath,
-		}).Error("Failed to load .env file")
+		logger.WithError(err).Error("Failed to load .env file")
 		return fmt.Errorf("failed to load .env file for project %q: %w", p.Name, err)
 	}
 
@@ -189,17 +164,11 @@ func (p *Project) processEnvFile() error {
 			overrideCount++
 		}
 	}
-
-	log.WithFields(logrus.Fields{
-		"project":       p.Name,
-		"totalVars":     len(envMap),
-		"overrides":     overrideCount,
-		"finalVarCount": len(p.Env),
-	}).Debug("Successfully merged environment variables")
+	logger.Debug("Successfully merged environment variables")
 	return nil
 }
 
-// validateProject validates a project configuration and returns an error if any required fields are missing
+// validate validates a project configuration and returns an error if any required fields are missing
 func (p *Project) validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("project name is required")
@@ -236,27 +205,39 @@ func (p *Project) validate() error {
 
 // processProjectPaths processes and validates project paths, making them absolute if necessary
 func (p *Project) processProjectPaths(configDir string) error {
-	// Make project path absolute if it's relative
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "processProjectPaths",
+		"project":  p.Name,
+	})
+
 	if !filepath.IsAbs(p.Path) {
 		p.Path = filepath.Join(configDir, p.Path)
+		logger.Debugf("Converted project path to absolute: %s", p.Path)
 	}
 
 	// Make compose file path absolute if it's relative
 	if !filepath.IsAbs(p.ComposeFile) {
 		p.ComposeFile = filepath.Join(p.Path, p.ComposeFile)
+		logger.Debugf("Converted compose file path to absolute: %s", p.ComposeFile)
 	}
 
 	// Make context path absolute if it's relative and not empty
 	if p.Context != "" && !filepath.IsAbs(p.Context) {
 		p.Context = filepath.Join(p.Path, p.Context)
+		logger.Debugf("Converted context path to absolute: %s", p.Context)
 	}
 
 	return nil
 }
 
-// processAllEnvVars processes environment variables in all relevant fields
+// processAllEnvVars processes environment variables in all relevant fields.
 func (p *Project) processAllEnvVars() error {
-	// Process path fields
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "processAllEnvVars",
+		"project":  p.Name,
+	})
+	logger.Debug("Starting environment variable processing for all fields")
+
 	if processed, err := substituteEnvVars(p.Path); err != nil {
 		return fmt.Errorf("failed to process path: %w", err)
 	} else {
@@ -301,14 +282,18 @@ func (p *Project) processAllEnvVars() error {
 		}
 	}
 
-	// Process environment variables last (after all other fields are processed)
+	logger.Debug("Completed environment variable processing for all fields")
 	return p.processEnvVars()
 }
 
 // LoadConfig reads and parses a YAML configuration file into a Config struct.
 // It returns an error if the file cannot be read or if the YAML is invalid.
 func LoadConfig(filePath string) (*Config, error) {
-	log.WithField("file", filePath).Info("Loading configuration file")
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "LoadConfig",
+		"file":     filePath,
+	})
+	logger.Debug("Loading configuration file")
 
 	// Get the absolute path and directory of the config file
 	absPath, err := filepath.Abs(filePath)
@@ -319,27 +304,27 @@ func LoadConfig(filePath string) (*Config, error) {
 
 	data, err := os.ReadFile(absPath)
 	if err != nil {
-		log.WithError(err).WithField("file", absPath).Error("Failed to read config file")
+		logger.WithError(err).Error("Failed to read config file")
 		return nil, fmt.Errorf("failed to read config file %s: %w", absPath, err)
 	}
 
 	var config Config
 	if err := yaml.Unmarshal(data, &config); err != nil {
-		log.WithError(err).WithField("file", absPath).Error("Failed to parse YAML config")
+		logger.WithError(err).Error("Failed to parse YAML config")
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
 	if len(config.Projects) == 0 {
-		log.WithField("file", absPath).Error("Config file contains no projects")
+		logger.Error("Config file contains no projects")
 		return nil, fmt.Errorf("config file must contain at least one project")
 	}
 
-	log.WithField("projectCount", len(config.Projects)).Debug("Successfully parsed config file")
+	logger.Debug("Successfully parsed config file")
 
 	// Process each project's configuration
 	for i := range config.Projects {
 		project := &config.Projects[i]
-		log.WithField("project", project.Name).Debug("Processing project configuration")
+		logger.WithField("project", project.Name).Debug("Processing project configuration")
 
 		// Validate the project configuration
 		if err := project.validate(); err != nil {
@@ -362,6 +347,6 @@ func LoadConfig(filePath string) (*Config, error) {
 		}
 	}
 
-	log.WithField("file", absPath).Info("Successfully loaded and processed configuration")
+	logger.Info("Successfully loaded and processed configuration")
 	return &config, nil
 }

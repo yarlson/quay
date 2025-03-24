@@ -208,6 +208,12 @@ func applyPortMappings(project *types.Project, mappings []PortMapping) error {
 
 // generateYAML generates a YAML string from a project configuration.
 func generateYAML(project *types.Project) (string, error) {
+	logger := logrus.WithFields(logrus.Fields{
+		"function": "generateYAML",
+		"project":  project.Name,
+	})
+	logger.Debug("Starting YAML generation")
+
 	type serviceConfig struct {
 		Image       string            `yaml:"image,omitempty"`
 		Ports       []string          `yaml:"ports,omitempty"`
@@ -225,7 +231,8 @@ func generateYAML(project *types.Project) (string, error) {
 
 	// Convert each service to our internal format.
 	for _, service := range project.Services {
-		serviceConfig := serviceConfig{
+		logger.Debugf("Processing service: %s", service.Name)
+		svcConfig := serviceConfig{
 			Image: service.Image,
 		}
 
@@ -235,7 +242,8 @@ func generateYAML(project *types.Project) (string, error) {
 			for i, port := range service.Ports {
 				ports[i] = fmt.Sprintf("%s:%d", port.Published, port.Target)
 			}
-			serviceConfig.Ports = ports
+			svcConfig.Ports = ports
+			logger.Debugf("Service %s ports: %v", service.Name, ports)
 		}
 
 		// Add environment variables if any.
@@ -247,7 +255,8 @@ func generateYAML(project *types.Project) (string, error) {
 				}
 			}
 			if len(envMap) > 0 {
-				serviceConfig.Environment = envMap
+				svcConfig.Environment = envMap
+				logger.Debugf("Service %s environment: %v", service.Name, envMap)
 			}
 		}
 
@@ -257,15 +266,17 @@ func generateYAML(project *types.Project) (string, error) {
 			for i, vol := range service.Volumes {
 				volumes[i] = fmt.Sprintf("%s:%s", vol.Source, vol.Target)
 			}
-			serviceConfig.Volumes = volumes
+			svcConfig.Volumes = volumes
+			logger.Debugf("Service %s volumes: %v", service.Name, volumes)
 		}
 
-		cfg.Services[service.Name] = serviceConfig
+		cfg.Services[service.Name] = svcConfig
 	}
 
 	// Marshal to YAML.
 	yamlData, err := yaml.Marshal(cfg)
 	if err != nil {
+		logger.Errorf("Failed to marshal YAML: %v", err)
 		return "", fmt.Errorf("failed to marshal YAML: %w", err)
 	}
 
@@ -282,7 +293,9 @@ func generateYAML(project *types.Project) (string, error) {
 		}
 	}
 
-	return strings.Join(lines, "\n"), nil
+	result := strings.Join(lines, "\n")
+	logger.Debug("Successfully generated YAML configuration")
+	return result, nil
 }
 
 // executeCommand executes the docker-compose command with the generated YAML configuration.
